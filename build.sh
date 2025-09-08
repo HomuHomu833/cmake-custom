@@ -136,12 +136,7 @@ sed -i '/auto separator = cm::string_view{/,/}/c\
         this->RegistryFormat.end(1) - this->RegistryFormat.start(1)\
     };\
 }' "$ROOT_DIR/cmake-$CMAKE_VER/Source/cmWindowsRegistry.cxx" || true
-sed -i '/std::string env_ca;/a\  std::string hack_ca = std::string(getenv("HOME")) + "/../usr/etc/tls/cert.pem";' "$ROOT_DIR/cmake-$CMAKE_VER/Source/cmCurl.cxx"
-sed -i '/cmSystemTools::FileExists(env_ca, true))/a\
-  else if (cmSystemTools::FileExists(hack_ca, true)) {\
-    ::CURLcode res = ::curl_easy_setopt(curl, CURLOPT_CAINFO, hack_ca.c_str());\
-    check_curl_result(res, "Unable to set TLS/SSL Verify CAINFO: ");\
-  }' "$ROOT_DIR/cmake-$CMAKE_VER/Source/cmCurl.cxx"
+cp "$ROOT_DIR/patches/cmake/cmCurl.cxx" "$ROOT_DIR/cmake-$CMAKE_VER/Source/cmCurl.cxx"
 cd $ROOT_DIR
 clone_repo "https://github.com/ninja-build/ninja.git" "v$NINJA_VER" "$ROOT_DIR/ninja-$NINJA_VER"
 
