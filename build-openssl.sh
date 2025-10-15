@@ -17,7 +17,7 @@ ZIG_OBJCOPY="$TOOLCHAIN/bin/objcopy"
 ZIG_AR="$TOOLCHAIN/bin/ar"
 ZIG_RANLIB="$TOOLCHAIN/bin/ranlib"
 ZIG_STRIP="$TOOLCHAIN/bin/strip"
-ZIG_C_FLAGS="-static"
+ZIG_C_FLAGS="-fno-sanitize=all -static"
 ZIG_CXX_FLAGS="$ZIG_C_FLAGS"
 ZIG_LINKER_FLAGS="-static"
 
