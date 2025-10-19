@@ -5,7 +5,7 @@ on:
     inputs:
       cmake_version:
         description: "CMake Version:"
-        default: "4.1.0"
+        default: "4.1.2"
         required: true
       ninja_version:
         description: "Ninja Version:"
