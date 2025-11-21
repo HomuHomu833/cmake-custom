@@ -42,7 +42,7 @@ mv openssl-1.1.1w openssl
 cd openssl
 sed -i '/^\s*shared_cflag\s*=>\s*"-fPIC",\s*$/d' Configurations/10-main.conf
 patch -p1 < $ROOT_DIR/patches/openssl/fix-io_getevents-time64.patch
-patch -p1 < $ROOT_DIR/patches/openssl/termux.patch
+patch -p1 < $ROOT_DIR/patches/openssl/android.patch
 case "$TARGET_TRIPLE" in
     aarch64-linux-musl)      OPENSSL_TARGET="linux-aarch64" ;;
     aarch64_be-linux-musl)   OPENSSL_TARGET="linux-generic64" ;;  # No official support, generic fallback
