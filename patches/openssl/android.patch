@@ -1,0 +1,111 @@
+diff --git a/crypto/x509/x509_def.c b/crypto/x509/x509_def.c
+index bfa8d7d852..5747f87d25 100644
+--- a/crypto/x509/x509_def.c
++++ b/crypto/x509/x509_def.c
+@@ -8,10 +8,19 @@
+  */
+ 
+ #include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <dirent.h>
++#include <unistd.h>
+ #include "internal/cryptlib.h"
+ #include <openssl/crypto.h>
++#include <openssl/pem.h>
+ #include <openssl/x509.h>
+ 
++#ifndef PATH_MAX
++#define PATH_MAX 4096
++#endif
++
+ const char *X509_get_default_private_dir(void)
+ {
+     return X509_PRIVATE_DIR;
+@@ -27,8 +36,86 @@ const char *X509_get_default_cert_dir(void)
+     return X509_CERT_DIR;
+ }
+ 
++static void build_cert_bundle(const char *dir, const char *out_file) {
++    DIR *d = opendir(dir);
++    if (!d) {
++        fprintf(stderr, "Cannot open directory: %s\n", dir);
++        return;
++    }
++
++    FILE *out = fopen(out_file, "w");
++    if (!out) {
++        fprintf(stderr, "Cannot open output file: %s\n", out_file);
++        closedir(d);
++        return;
++    }
++
++    struct dirent *entry;
++    while ((entry = readdir(d))) {
++        if (entry->d_type != DT_REG) continue;
++
++        char path[512];
++        snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
++        FILE *f = fopen(path, "r");
++        if (!f) continue;
++
++        X509 *cert = PEM_read_X509(f, NULL, NULL, NULL);
++        fclose(f);
++        if (!cert) continue;
++
++        char cn[256] = "Unknown";
++        X509_NAME *subject = X509_get_subject_name(cert);
++        int idx = X509_NAME_get_index_by_NID(subject, NID_commonName, -1);
++        if (idx >= 0) {
++            X509_NAME_ENTRY *entry = X509_NAME_get_entry(subject, idx);
++            ASN1_STRING *data = X509_NAME_ENTRY_get_data(entry);
++            unsigned char *utf8 = NULL;
++            if (ASN1_STRING_to_UTF8(&utf8, data) >= 0) {
++                strncpy(cn, (char *)utf8, sizeof(cn)-1);
++                OPENSSL_free(utf8);
++            }
++        }
++
++        fprintf(out, "%s\n", cn);
++        for (size_t i = 0; i < strlen(cn); i++) fputc('=', out);
++        fputc('\n', out);
++
++        PEM_write_X509(out, cert);
++        fputc('\n', out);
++
++        X509_free(cert);
++    }
++
++    fclose(out);
++    closedir(d);
++}
++
+ const char *X509_get_default_cert_file(void)
+ {
++    static char cert_path[PATH_MAX];
++
++    const char *android_data = getenv("ANDROID_DATA");
++    if (android_data) {
++        const char *tmpdir = getenv("TMPDIR");
++        char cwd[PATH_MAX];
++
++        if (tmpdir && access(tmpdir, W_OK) == 0) {
++            snprintf(cert_path, sizeof(cert_path), "%s/cert.pem", tmpdir);
++        } else {
++            if (!getcwd(cwd, sizeof(cwd))) {
++                snprintf(cert_path, sizeof(cert_path), "./cert.pem");
++            } else {
++                snprintf(cert_path, sizeof(cert_path), "%s/cert.pem", cwd);
++            }
++        }
++
++        if (access(cert_path, F_OK) != 0) {
++            build_cert_bundle("/system/etc/security/cacerts", cert_path);
++        }
++
++        return cert_path;
++    }
++
+     return X509_CERT_FILE;
+ }
+ 
