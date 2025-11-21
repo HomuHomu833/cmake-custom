@@ -18,16 +18,14 @@ int __get_resolv_conf(struct resolvconf *conf, char *search, size_t search_sz)
 	conf->attempts = 2;
 	if (search) *search = 0;
 
-	f = __fopen_rb_ca("/etc/resolv.conf", &_f, _buf, sizeof _buf);
-	if (!f)
-	{
-		char fallback_path[512];
-		const char *home = getenv("HOME");
-		if (home) {
-			snprintf(fallback_path, sizeof fallback_path, "%s/../usr/etc/resolv.conf", home); // termux hack
-			f = __fopen_rb_ca(fallback_path, &_f, _buf, sizeof _buf);
-		}
+	if (getenv("ANDROID_DATA")) {
+		__lookup_ipliteral(conf->ns + 0, "8.8.8.8", AF_UNSPEC);
+		__lookup_ipliteral(conf->ns + 1, "1.1.1.1", AF_UNSPEC);
+		conf->nns = 2;
+		return 0;
 	}
+
+	f = __fopen_rb_ca("/etc/resolv.conf", &_f, _buf, sizeof _buf);
 	if (!f) switch (errno) {
 	case ENOENT:
 	case ENOTDIR:
@@ -47,31 +45,31 @@ int __get_resolv_conf(struct resolvconf *conf, char *search, size_t search_sz)
 			while (c != '\n' && c != EOF);
 			continue;
 		}
-		if (!strncmp(line, "options", 7) && isspace(line[7])) {
+		if (!strncmp(line, "options", 7) && isspace((unsigned char)line[7])) {
 			p = strstr(line, "ndots:");
-			if (p && isdigit(p[6])) {
+			if (p && isdigit((unsigned char)p[6])) {
 				p += 6;
 				unsigned long x = strtoul(p, &z, 10);
 				if (z != p) conf->ndots = x > 15 ? 15 : x;
 			}
 			p = strstr(line, "attempts:");
-			if (p && isdigit(p[9])) {
+			if (p && isdigit((unsigned char)p[9])) {
 				p += 9;
 				unsigned long x = strtoul(p, &z, 10);
 				if (z != p) conf->attempts = x > 10 ? 10 : x;
 			}
 			p = strstr(line, "timeout:");
-			if (p && (isdigit(p[8]) || p[8]=='.')) {
+			if (p && (isdigit((unsigned char)p[8]) || p[8]=='.')) {
 				p += 8;
 				unsigned long x = strtoul(p, &z, 10);
 				if (z != p) conf->timeout = x > 60 ? 60 : x;
 			}
 			continue;
 		}
-		if (!strncmp(line, "nameserver", 10) && isspace(line[10])) {
+		if (!strncmp(line, "nameserver", 10) && isspace((unsigned char)line[10])) {
 			if (nns >= MAXNS) continue;
-			for (p=line+11; isspace(*p); p++);
-			for (z=p; *z && !isspace(*z); z++);
+			for (p=line+11; isspace((unsigned char)*p); p++);
+			for (z=p; *z && !isspace((unsigned char)*z); z++);
 			*z=0;
 			if (__lookup_ipliteral(conf->ns+nns, p, AF_UNSPEC) > 0)
 				nns++;
@@ -80,9 +78,9 @@ int __get_resolv_conf(struct resolvconf *conf, char *search, size_t search_sz)
 
 		if (!search) continue;
 		if ((strncmp(line, "domain", 6) && strncmp(line, "search", 6))
-		    || !isspace(line[6]))
+		    || !isspace((unsigned char)line[6]))
 			continue;
-		for (p=line+7; isspace(*p); p++);
+		for (p=line+7; isspace((unsigned char)*p); p++);
 		size_t l = strlen(p);
 		/* This can never happen anyway with chosen buffer sizes. */
 		if (l >= search_sz) continue;
