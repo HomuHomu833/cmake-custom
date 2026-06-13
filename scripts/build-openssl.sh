@@ -90,6 +90,9 @@ case "$TARGET" in
         # The /dev/crypto engine needs <crypto/cryptodev.h>, absent from some BSD
         # zig sysroots (e.g. OpenBSD); cmake's curl doesn't need it.
         SSL_EXTRA="no-devcryptoeng"
+        # OpenSSL's 32-bit x86 BSD perlasm emits .align values clang's integrated
+        # assembler rejects ("alignment must be a power of 2"); build it in C.
+        [ "$ARCH" = x86 ] && SSL_EXTRA="$SSL_EXTRA no-asm"
         case "$ARCH" in
           x86)                                          OPENSSL_TARGET="BSD-x86" ;;
           x86_64|x86_64h)                               OPENSSL_TARGET="BSD-x86_64" ;;

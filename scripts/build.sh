@@ -34,6 +34,10 @@ case "$TARGET" in
     ZIG_C_FLAGS=""
     ZIG_CXX_FLAGS=""
     ZIG_LINKER_FLAGS="-static-libstdc++ -static-libgcc -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic"
+    # CMake compiles its own .rc resources; it defaults CMAKE_RC_COMPILER to the
+    # bare `windres`, which llvm-mingw only ships target-prefixed. Point it there.
+    export RC="$TC/bin/${TARGET}-windres"; export WINDRES="$RC"
+    EXTRA_CMAKE=(-DCMAKE_RC_COMPILER="$RC")
     ;;
   *-linux-android*)
     # Android (bionic) via the official NDK clang, so cmake/ninja run on-device
@@ -190,6 +194,31 @@ sed -i '/auto separator = cm::string_view{/,/}/c\
     };\
 }' "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmWindowsRegistry.cxx" || true
 cp "$ROOTDIR/patches/cmake/cmCurl.cxx" "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmCurl.cxx"
+
+# CompileFlags.cmake forces _TIME_BITS=64 on 32-bit Linux, giving cmake's own
+# sources a 64-bit time_t. zig's prebuilt libc++ for 32-bit glibc is 32-bit
+# time_t, so chrono's system_clock::from_time_t fails to link. Drop _TIME_BITS=64
+# (keep _FILE_OFFSET_BITS=64); musl is always 64-bit time_t so it's unaffected.
+sed -i 's/add_compile_definitions(_FILE_OFFSET_BITS=64 _TIME_BITS=64)/add_compile_definitions(_FILE_OFFSET_BITS=64)/' \
+    "$ROOTDIR/cmake-$CMAKE_VERSION/CompileFlags.cmake" || true
+
+case "$TARGET" in
+  *-linux-android*)
+    # bionic lacks pthread_setaffinity_np before API 36; disable cmlibuv's CPU
+    # affinity block on Android (the three guards cover its decls, use, and the
+    # cpumask entry point, which then returns UV_ENOTSUP).
+    sed -i 's/#if defined(__linux__) || defined(__FreeBSD__)/#if (defined(__linux__) || defined(__FreeBSD__)) \&\& !defined(__ANDROID__)/' \
+        "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/src/unix/process.c" || true
+    ;;
+  *-netbsd-*)
+    # zig's NetBSD sysroot ships <kvm.h> but no libkvm; stub the one consumer
+    # (uv_resident_set_memory) and drop the -lkvm link so cmake links.
+    perl -0pi -e 's/int uv_resident_set_memory\(size_t\* rss\) \{.*?\n\}/int uv_resident_set_memory(size_t* rss) {\n  *rss = 0;\n  return UV_ENOSYS;\n}/s' \
+        "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/src/unix/netbsd.c" || true
+    sed -i '/^[[:space:]]*kvm[[:space:]]*$/d' \
+        "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/CMakeLists.txt" || true
+    ;;
+esac
 clone_repo "https://github.com/ninja-build/ninja.git" "v$NINJA_VERSION" "$ROOTDIR/ninja-$NINJA_VERSION"
 
 build_project CMake "$ROOTDIR/cmake-$CMAKE_VERSION" \
