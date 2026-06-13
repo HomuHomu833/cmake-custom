@@ -22,7 +22,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # clang/lld + lib*-dev/cpio/bzip2: build osxcross (cctools-port) at image time.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates aria2 xz-utils unzip git make cmake ninja-build \
-        build-essential clang lld perl patch file \
+        build-essential clang lld perl patch file python3 \
         libssl-dev libxml2-dev liblzma-dev uuid-dev zlib1g-dev cpio bzip2 \
     && rm -rf /var/lib/apt/lists/*
 
