@@ -24,6 +24,7 @@ log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 # CC/CXX/AR/RANLIB select the toolchain — AR matters for macOS (ld64 rejects a
 # GNU-format archive, so OpenSSL must use the cctools ar).
 APPLY_PATCHES=1
+SSL_EXTRA=""
 case "$TARGET" in
   *-w64-mingw32)
     TC=/opt/llvm-mingw
@@ -86,6 +87,9 @@ case "$TARGET" in
     CC="$TC/bin/cc"; CXX="$TC/bin/c++"; AR="$TC/bin/ar"; RANLIB="$TC/bin/ranlib"
     case "$OS_FIELD" in
       freebsd|netbsd|openbsd)
+        # The /dev/crypto engine needs <crypto/cryptodev.h>, absent from some BSD
+        # zig sysroots (e.g. OpenBSD); cmake's curl doesn't need it.
+        SSL_EXTRA="no-devcryptoeng"
         case "$ARCH" in
           x86)                                          OPENSSL_TARGET="BSD-x86" ;;
           x86_64|x86_64h)                               OPENSSL_TARGET="BSD-x86_64" ;;
@@ -127,7 +131,7 @@ if [ "$APPLY_PATCHES" = 1 ]; then
   patch -p1 < "$ROOTDIR/patches/openssl/android.patch"
 fi
 CC="$CC" CXX="$CXX" AR="$AR" RANLIB="$RANLIB" \
-  ./Configure "$OPENSSL_TARGET" no-shared no-async no-tests no-dso \
+  ./Configure "$OPENSSL_TARGET" no-shared no-async no-tests no-dso $SSL_EXTRA \
     --prefix="$EXTRAS_DIR" --openssldir="/etc/ssl"
 make -j"$(nproc)"
 make install_sw
