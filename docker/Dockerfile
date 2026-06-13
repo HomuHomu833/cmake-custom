@@ -13,14 +13,17 @@ FROM ubuntu:24.04
 
 ARG ZIG_VERSION=0.17.0-dev.304+9787df942
 ARG LLVM_MINGW_VERSION=20260505
+ARG MACOS_SDK_VERSION=15.5
 ARG REPO_OWNER=HomuHomu833
 
 ENV DEBIAN_FRONTEND=noninteractive
 # build-essential/cmake/ninja: host tools to bootstrap the CMake/Ninja cross build.
 # perl: OpenSSL's Configure. patch: source fixups. aria2/xz/git: fetch + unpack.
+# clang/lld + lib*-dev/cpio/bzip2: build osxcross (cctools-port) at image time.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates aria2 xz-utils git make cmake ninja-build \
-        build-essential perl patch file \
+        ca-certificates aria2 xz-utils unzip git make cmake ninja-build \
+        build-essential clang lld perl patch file \
+        libssl-dev libxml2-dev liblzma-dev uuid-dev zlib1g-dev cpio bzip2 \
     && rm -rf /var/lib/apt/lists/*
 
 # fetch: aria2c with retries (transient GitHub 5xx). build scripts can reuse it.
@@ -77,5 +80,21 @@ RUN arch="$(uname -m)"; \
             && mv "/opt/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-${arch}" /opt/llvm-mingw ;; \
         *) echo "WARNING: llvm-mingw does not support host arch '$arch'; Windows cross-builds will be unavailable" ;; \
     esac
+
+# osxcross: macOS cross toolchain (cctools-port + clang wrappers) with the macOS
+# SDK baked into /opt/osxcross/SDK; zig segfaults building Darwin binaries.
+ARG OSXCROSS_REF=master
+RUN git clone https://github.com/tpoechtrager/osxcross /tmp/osxcross \
+    && git -C /tmp/osxcross checkout "$OSXCROSS_REF" \
+    && fetch \
+        --dir=/tmp/osxcross/tarballs -o "MacOSX${MACOS_SDK_VERSION}.sdk.tar.xz" \
+        "https://github.com/joseluisq/macosx-sdks/releases/download/${MACOS_SDK_VERSION}/MacOSX${MACOS_SDK_VERSION}.sdk.tar.xz" \
+    && cd /tmp/osxcross \
+    && UNATTENDED=1 ENABLE_ARCHS="x86_64 x86_64h arm64 arm64e" OSX_VERSION_MIN=11.0 \
+       TARGET_DIR=/opt/osxcross ./build.sh \
+    && cd / \
+    && rm -rf /tmp/osxcross
+
+# Android (bionic): the official NDK is downloaded by build.sh at run time.
 
 WORKDIR /work

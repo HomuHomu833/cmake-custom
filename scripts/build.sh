@@ -20,7 +20,9 @@ cd "$ROOTDIR"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
-# Per-platform toolchain + flags
+# Per-platform toolchain + flags. EXTRA_CMAKE carries any platform-specific -D
+# flags (e.g. macOS sysroot/arch) appended to every configure.
+EXTRA_CMAKE=()
 case "$TARGET" in
   *-w64-mingw32)
     TC=/opt/llvm-mingw
@@ -32,6 +34,62 @@ case "$TARGET" in
     ZIG_C_FLAGS=""
     ZIG_CXX_FLAGS=""
     ZIG_LINKER_FLAGS="-static-libstdc++ -static-libgcc -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic"
+    ;;
+  *-linux-android*)
+    # Android (bionic) via the official NDK clang, so cmake/ninja run on-device
+    # (e.g. Termux). SYSTEM_NAME stays Linux so CMake uses the clang we point at
+    # rather than taking over with its own NDK toolchain machinery.
+    : "${NDK_VERSION:?set NDK_VERSION for the android build}"
+    NDK_REVISION="${NDK_REVISION:-}"
+    API="${ANDROID_PLATFORM:-24}"; [ "$TARGET" = riscv64-linux-android ] && API=35
+    NDK_NAME="android-ndk-r${NDK_VERSION}${NDK_REVISION}"
+    NDK_DIR="$ROOTDIR/$NDK_NAME"
+    if [ ! -d "$NDK_DIR" ]; then
+      log "Downloading official NDK ($NDK_NAME)"
+      fetch --dir="$ROOTDIR" -o ndk.zip "https://dl.google.com/android/repository/${NDK_NAME}-linux.zip"
+      unzip -qq "$ROOTDIR/ndk.zip" -d "$ROOTDIR"
+      rm -f "$ROOTDIR/ndk.zip"
+    fi
+    TC="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64"
+    ZIG_CC="$TC/bin/${TARGET}${API}-clang"; ZIG_CXX="${ZIG_CC}++"
+    ZIG_LD="$TC/bin/ld"; ZIG_AR="$TC/bin/llvm-ar"; ZIG_RANLIB="$TC/bin/llvm-ranlib"
+    ZIG_STRIP="$TC/bin/llvm-strip"; ZIG_OBJCOPY="$TC/bin/llvm-objcopy"
+    TARGET_OS=Linux
+    ZIG_C_FLAGS=""; ZIG_CXX_FLAGS=""
+    ZIG_LINKER_FLAGS="-static-libstdc++"
+    ;;
+  *-apple-darwin*)
+    # macOS via osxcross (cctools-port + clang wrappers carrying the SDK sysroot);
+    # zig segfaults building Darwin binaries.
+    TC=/opt/osxcross
+    export PATH="$TC/bin:$PATH"
+    case "$TARGET" in
+      arm64e-*) OSX_ARCH=arm64e ;;   # distinct PAC ABI, not arm64
+      arm64-*|aarch64-*) OSX_ARCH=arm64 ;;
+      x86_64h-*) OSX_ARCH=x86_64h ;; # Haswell+ x86_64 slice
+      x86_64-*)  OSX_ARCH=x86_64 ;;
+      *) echo "Unsupported macOS arch in TARGET='$TARGET'" >&2; exit 1 ;;
+    esac
+    # osxcross wrappers carry the SDK's darwin version (e.g. arm64-apple-darwin24.5);
+    # resolve the prefix by globbing.
+    CCWRAP="$(ls "$TC/bin/${OSX_ARCH}-apple-darwin"*-clang 2>/dev/null | head -n1 || true)"
+    [ -n "$CCWRAP" ] || { echo "osxcross clang wrapper for $OSX_ARCH not found" >&2; exit 1; }
+    HOST="$(basename "${CCWRAP%-clang}")"
+    ZIG_CC="$TC/bin/${HOST}-clang"; ZIG_CXX="$TC/bin/${HOST}-clang++"
+    ZIG_LD="$TC/bin/${HOST}-ld"; ZIG_AR="$TC/bin/${HOST}-ar"
+    ZIG_RANLIB="$TC/bin/${HOST}-ranlib"; ZIG_STRIP="$TC/bin/${HOST}-strip"
+    ZIG_OBJCOPY=""                 # cctools ships no objcopy; nothing here needs it
+    TARGET_OS=Darwin
+    ZIG_C_FLAGS=""; ZIG_CXX_FLAGS=""; ZIG_LINKER_FLAGS=""
+    SDKROOT="$(ls -d "$TC/SDK/MacOSX"*.sdk 2>/dev/null | head -n1 || true)"
+    EXTRA_CMAKE=(-DCMAKE_OSX_ARCHITECTURES="$OSX_ARCH" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0)
+    [ -n "$SDKROOT" ] && EXTRA_CMAKE+=(-DCMAKE_OSX_SYSROOT="$SDKROOT")
+    # cctools libtool under the plain name, in case a step shells out to it.
+    LIBTOOLBIN="$(ls "$TC/bin/${OSX_ARCH}-apple-darwin"*-libtool 2>/dev/null | head -n1 || true)"
+    if [ -n "$LIBTOOLBIN" ]; then
+      mkdir -p "$BUILD_DIR/.macos-shims"; ln -sf "$LIBTOOLBIN" "$BUILD_DIR/.macos-shims/libtool"
+      export PATH="$BUILD_DIR/.macos-shims:$PATH"
+    fi
     ;;
   *)
     TC=/opt/zig-as-llvm
@@ -105,7 +163,7 @@ build_project() {
             -DCMAKE_USE_SYSTEM_CPPDAP=OFF
         )
     fi
-    cmake -B "$build_dir" -S "$src_dir" "${cmake_flags[@]}"
+    cmake -B "$build_dir" -S "$src_dir" "${cmake_flags[@]}" "${EXTRA_CMAKE[@]}"
     log "Building $name"
     ninja -C "$build_dir" -j"$(nproc)"
     ninja -C "$build_dir" install

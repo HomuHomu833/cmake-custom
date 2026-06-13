@@ -3,7 +3,7 @@ on:
   workflow_call:
     inputs:
       platform:
-        description: "linux | bsd | windows"
+        description: "linux | bsd | windows | macos | android"
         required: true
         type: string
       targets:
@@ -18,6 +18,16 @@ on:
         description: "Ninja version (release tag, no leading v)"
         required: true
         type: string
+      ndk_version:
+        description: "Official NDK version for the android clang (android only)"
+        required: false
+        type: string
+        default: ""
+      ndk_revision:
+        description: "Official NDK revision letter (android only)"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -61,6 +71,8 @@ jobs:
             -e TARGET='${{ matrix.target }}' \
             -e CMAKE_VERSION='${{ inputs.cmake_version }}' \
             -e NINJA_VERSION='${{ inputs.ninja_version }}' \
+            -e NDK_VERSION='${{ inputs.ndk_version }}' \
+            -e NDK_REVISION='${{ inputs.ndk_revision }}' \
             -e ROOTDIR=/work \
             "$IMAGE" \
             bash -c 'scripts/build-openssl.sh && scripts/build.sh'

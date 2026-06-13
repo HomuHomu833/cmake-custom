@@ -3,8 +3,10 @@
 # Driven by env vars so it runs identically in CI and in `docker run`.
 #
 #   TARGET    target triple (e.g. x86_64-linux-musl, aarch64-linux-gnu,
-#             aarch64-freebsd-none)
+#             aarch64-freebsd-none, aarch64-linux-android, arm64-apple-darwin,
+#             x86_64-w64-mingw32)
 #   ROOTDIR   checkout root (default: cwd)
+#   NDK_VERSION/NDK_REVISION  official NDK for the android clang (android only)
 set -euo pipefail
 
 ROOTDIR="${ROOTDIR:-$PWD}"
@@ -12,77 +14,97 @@ ROOTDIR="${ROOTDIR:-$PWD}"
 ARCH="${TARGET%%-*}"
 OS_FIELD="$(echo "$TARGET" | cut -d- -f2)"
 EXTRAS_DIR="$ROOTDIR/extras"
-TC=/opt/zig-as-llvm
 cd "$ROOTDIR"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
-# overlay the musl libc source fixes onto zig's bundled musl (lib is a+w)
-[ -d "$ROOTDIR/patches/zig" ] && cp -R "$ROOTDIR/patches/zig/." /opt/zig/ || true
-
 # 64-bit MIPS OpenSSL doesn't cross-build cleanly; build.sh also drops OpenSSL there.
 case "$TARGET" in mips64*) log "OpenSSL skipped for $TARGET"; exit 0 ;; esac
 
-# Windows (mingw) targets use llvm-mingw, not zig
+# --- per-platform compiler + OpenSSL Configure target -----------------------
+# APPLY_TIME64 gates the musl/linux io_getevents time64 fix (irrelevant on
+# mingw/darwin). CC/CXX/RANLIB select the toolchain.
+APPLY_TIME64=1
 case "$TARGET" in
   *-w64-mingw32)
     TC=/opt/llvm-mingw
-    ZIG_CC="$TC/bin/${TARGET}-clang"; ZIG_CXX="$TC/bin/${TARGET}-clang++"
-    ZIG_RANLIB="$TC/bin/${TARGET}-ranlib"
+    CC="$TC/bin/${TARGET}-clang"; CXX="$TC/bin/${TARGET}-clang++"; RANLIB="$TC/bin/${TARGET}-ranlib"
+    APPLY_TIME64=0
     case "$TARGET" in
       x86_64-w64-mingw32)  OPENSSL_TARGET="mingw64" ;;
       aarch64-w64-mingw32) OPENSSL_TARGET="mingw-armv8" ;;
       i686-w64-mingw32)    OPENSSL_TARGET="mingw" ;;
-    esac
-    log "Building OpenSSL ($TARGET -> $OPENSSL_TARGET)"
-    rm -rf "$EXTRAS_DIR" "$ROOTDIR/openssl"
-    fetch --dir=/tmp -o openssl.tar.gz https://github.com/openssl/openssl/releases/download/OpenSSL_1_1_1w/openssl-1.1.1w.tar.gz
-    gzip -d < /tmp/openssl.tar.gz | tar -x -C "$ROOTDIR"
-    rm -f /tmp/openssl.tar.gz
-    mv "$ROOTDIR/openssl-1.1.1w" "$ROOTDIR/openssl"
-    cd "$ROOTDIR/openssl"
-    sed -i '/^\s*shared_cflag\s*=>\s*"-fPIC",\s*$/d' Configurations/10-main.conf
-    patch -p1 < "$ROOTDIR/patches/openssl/android.patch"
-    CC="$ZIG_CC" CXX="$ZIG_CXX" RANLIB="$ZIG_RANLIB" \
-      ./Configure "$OPENSSL_TARGET" no-shared no-async no-tests no-dso \
-        --prefix="$EXTRAS_DIR" --openssldir="/etc/ssl"
-    make -j"$(nproc)"
-    make install_sw
-    log "Done -> $EXTRAS_DIR"
-    exit 0
-    ;;
-esac
-
-export ZIG_TARGET="$TARGET"
-ZIG_CC="$TC/bin/cc"; ZIG_CXX="$TC/bin/c++"; ZIG_RANLIB="$TC/bin/ranlib"
-
-# OpenSSL Configure target: by ELF arch (libc-agnostic) on Linux, BSD-* family
-# otherwise. Arches OpenSSL lacks a config for fall back to a generic 32/64 one.
-case "$OS_FIELD" in
-  freebsd|netbsd|openbsd)
+    esac ;;
+  *-linux-android*)
+    : "${NDK_VERSION:?set NDK_VERSION for the android build}"
+    NDK_REVISION="${NDK_REVISION:-}"
+    API="${ANDROID_PLATFORM:-24}"; [ "$TARGET" = riscv64-linux-android ] && API=35
+    NDK_NAME="android-ndk-r${NDK_VERSION}${NDK_REVISION}"; NDK_DIR="$ROOTDIR/$NDK_NAME"
+    if [ ! -d "$NDK_DIR" ]; then
+      log "Downloading official NDK ($NDK_NAME)"
+      fetch --dir="$ROOTDIR" -o ndk.zip "https://dl.google.com/android/repository/${NDK_NAME}-linux.zip"
+      unzip -qq "$ROOTDIR/ndk.zip" -d "$ROOTDIR"; rm -f "$ROOTDIR/ndk.zip"
+    fi
+    TC="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64"
+    CC="$TC/bin/${TARGET}${API}-clang"; CXX="${CC}++"; RANLIB="$TC/bin/llvm-ranlib"
+    # CC-driven linux-* configs (the NDK clang handles the bionic specifics).
     case "$ARCH" in
-      x86)                                          OPENSSL_TARGET="BSD-x86" ;;
-      x86_64|x86_64h)                               OPENSSL_TARGET="BSD-x86_64" ;;
-      arm|armhf|armeb|riscv32|powerpc|mips|mipsel)  OPENSSL_TARGET="BSD-generic32" ;;
-      *)                                            OPENSSL_TARGET="BSD-generic64" ;;
+      aarch64) OPENSSL_TARGET="linux-aarch64" ;;
+      armv7a)  OPENSSL_TARGET="linux-armv4" ;;
+      i686)    OPENSSL_TARGET="linux-x86" ;;
+      x86_64)  OPENSSL_TARGET="linux-x86_64" ;;
+      riscv64) OPENSSL_TARGET="linux64-riscv64" ;;
+      *)       OPENSSL_TARGET="linux-generic64" ;;
+    esac ;;
+  *-apple-darwin*)
+    TC=/opt/osxcross; export PATH="$TC/bin:$PATH"
+    export MACOSX_DEPLOYMENT_TARGET=11.0
+    APPLY_TIME64=0
+    case "$ARCH" in
+      arm64|arm64e|aarch64) OSX_ARCH=arm64 ;;
+      x86_64h)              OSX_ARCH=x86_64h ;;
+      *)                    OSX_ARCH=x86_64 ;;
+    esac
+    CCWRAP="$(ls "$TC/bin/${OSX_ARCH}-apple-darwin"*-clang 2>/dev/null | head -n1 || true)"
+    [ -n "$CCWRAP" ] || { echo "osxcross clang wrapper for $OSX_ARCH not found" >&2; exit 1; }
+    HOST="$(basename "${CCWRAP%-clang}")"
+    CC="$TC/bin/${HOST}-clang"; CXX="$TC/bin/${HOST}-clang++"; RANLIB="$TC/bin/${HOST}-ranlib"
+    case "$ARCH" in
+      arm64|arm64e|aarch64) OPENSSL_TARGET="darwin64-arm64-cc" ;;
+      *)                    OPENSSL_TARGET="darwin64-x86_64-cc" ;;
     esac ;;
   *)
-    case "$ARCH" in
-      aarch64)         OPENSSL_TARGET="linux-aarch64" ;;
-      aarch64_be)      OPENSSL_TARGET="linux-generic64" ;;
-      arm|armhf)       OPENSSL_TARGET="linux-armv4" ;;
-      armeb)           OPENSSL_TARGET="linux-generic32" ;;
-      loongarch64)     OPENSSL_TARGET="linux64-loongarch64" ;;
-      mips|mipsel)     OPENSSL_TARGET="linux-mips32" ;;
-      powerpc)         OPENSSL_TARGET="linux-ppc" ;;
-      powerpc64)       OPENSSL_TARGET="linux-ppc64" ;;
-      powerpc64le)     OPENSSL_TARGET="linux-ppc64le" ;;
-      riscv32|hexagon) OPENSSL_TARGET="linux-generic32" ;;
-      riscv64)         OPENSSL_TARGET="linux64-riscv64" ;;
-      s390x)           OPENSSL_TARGET="linux64-s390x" ;;
-      x86)             OPENSSL_TARGET="linux-x86" ;;
-      x86_64)          case "$TARGET" in *x32) OPENSSL_TARGET="linux-x32" ;; *) OPENSSL_TARGET="linux-x86_64" ;; esac ;;
-      *)               OPENSSL_TARGET="linux-generic64" ;;
+    # zig (musl/gnu linux + bsd). Overlay the musl libc source fixes (lib is a+w).
+    TC=/opt/zig-as-llvm
+    [ -d "$ROOTDIR/patches/zig" ] && cp -R "$ROOTDIR/patches/zig/." /opt/zig/ || true
+    export ZIG_TARGET="$TARGET"
+    CC="$TC/bin/cc"; CXX="$TC/bin/c++"; RANLIB="$TC/bin/ranlib"
+    case "$OS_FIELD" in
+      freebsd|netbsd|openbsd)
+        case "$ARCH" in
+          x86)                                          OPENSSL_TARGET="BSD-x86" ;;
+          x86_64|x86_64h)                               OPENSSL_TARGET="BSD-x86_64" ;;
+          arm|armhf|armeb|riscv32|powerpc|mips|mipsel)  OPENSSL_TARGET="BSD-generic32" ;;
+          *)                                            OPENSSL_TARGET="BSD-generic64" ;;
+        esac ;;
+      *)
+        case "$ARCH" in
+          aarch64)         OPENSSL_TARGET="linux-aarch64" ;;
+          aarch64_be)      OPENSSL_TARGET="linux-generic64" ;;
+          arm|armhf)       OPENSSL_TARGET="linux-armv4" ;;
+          armeb)           OPENSSL_TARGET="linux-generic32" ;;
+          loongarch64)     OPENSSL_TARGET="linux64-loongarch64" ;;
+          mips|mipsel)     OPENSSL_TARGET="linux-mips32" ;;
+          powerpc)         OPENSSL_TARGET="linux-ppc" ;;
+          powerpc64)       OPENSSL_TARGET="linux-ppc64" ;;
+          powerpc64le)     OPENSSL_TARGET="linux-ppc64le" ;;
+          riscv32|hexagon) OPENSSL_TARGET="linux-generic32" ;;
+          riscv64)         OPENSSL_TARGET="linux64-riscv64" ;;
+          s390x)           OPENSSL_TARGET="linux64-s390x" ;;
+          x86)             OPENSSL_TARGET="linux-x86" ;;
+          x86_64)          case "$TARGET" in *x32) OPENSSL_TARGET="linux-x32" ;; *) OPENSSL_TARGET="linux-x86_64" ;; esac ;;
+          *)               OPENSSL_TARGET="linux-generic64" ;;
+        esac ;;
     esac ;;
 esac
 
@@ -94,9 +116,9 @@ rm -f /tmp/openssl.tar.gz
 mv "$ROOTDIR/openssl-1.1.1w" "$ROOTDIR/openssl"
 cd "$ROOTDIR/openssl"
 sed -i '/^\s*shared_cflag\s*=>\s*"-fPIC",\s*$/d' Configurations/10-main.conf
-patch -p1 < "$ROOTDIR/patches/openssl/fix-io_getevents-time64.patch"
+[ "$APPLY_TIME64" = 1 ] && patch -p1 < "$ROOTDIR/patches/openssl/fix-io_getevents-time64.patch"
 patch -p1 < "$ROOTDIR/patches/openssl/android.patch"
-CC="$ZIG_CC" CXX="$ZIG_CXX" RANLIB="$ZIG_RANLIB" \
+CC="$CC" CXX="$CXX" RANLIB="$RANLIB" \
   ./Configure "$OPENSSL_TARGET" no-shared no-async no-tests no-dso \
     --prefix="$EXTRAS_DIR" --openssldir="/etc/ssl"
 make -j"$(nproc)"
