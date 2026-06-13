@@ -19,14 +19,17 @@ cd "$ROOTDIR"
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
 # --- per-platform compiler + OpenSSL Configure target -----------------------
-# APPLY_TIME64 gates the musl/linux io_getevents time64 fix (irrelevant on
-# mingw/darwin). CC/CXX/RANLIB select the toolchain.
-APPLY_TIME64=1
+# APPLY_PATCHES gates the time64 + android source patches; off for mingw/macos
+# (android.patch adds POSIX dirent code mingw lacks; neither patch fits darwin).
+# CC/CXX/AR/RANLIB select the toolchain — AR matters for macOS (ld64 rejects a
+# GNU-format archive, so OpenSSL must use the cctools ar).
+APPLY_PATCHES=1
 case "$TARGET" in
   *-w64-mingw32)
     TC=/opt/llvm-mingw
-    CC="$TC/bin/${TARGET}-clang"; CXX="$TC/bin/${TARGET}-clang++"; RANLIB="$TC/bin/${TARGET}-ranlib"
-    APPLY_TIME64=0
+    CC="$TC/bin/${TARGET}-clang"; CXX="$TC/bin/${TARGET}-clang++"
+    AR="$TC/bin/${TARGET}-ar"; RANLIB="$TC/bin/${TARGET}-ranlib"
+    APPLY_PATCHES=0
     case "$TARGET" in
       x86_64-w64-mingw32)  OPENSSL_TARGET="mingw64" ;;
       aarch64-w64-mingw32) OPENSSL_TARGET="mingw-armv8" ;;
@@ -43,7 +46,8 @@ case "$TARGET" in
       unzip -qq "$ROOTDIR/ndk.zip" -d "$ROOTDIR"; rm -f "$ROOTDIR/ndk.zip"
     fi
     TC="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64"
-    CC="$TC/bin/${TARGET}${API}-clang"; CXX="${CC}++"; RANLIB="$TC/bin/llvm-ranlib"
+    CC="$TC/bin/${TARGET}${API}-clang"; CXX="${CC}++"
+    AR="$TC/bin/llvm-ar"; RANLIB="$TC/bin/llvm-ranlib"
     # CC-driven linux-* configs (the NDK clang handles the bionic specifics).
     case "$ARCH" in
       aarch64) OPENSSL_TARGET="linux-aarch64" ;;
@@ -56,7 +60,7 @@ case "$TARGET" in
   *-apple-darwin*)
     TC=/opt/osxcross; export PATH="$TC/bin:$PATH"
     export MACOSX_DEPLOYMENT_TARGET=11.0
-    APPLY_TIME64=0
+    APPLY_PATCHES=0
     case "$ARCH" in
       arm64|arm64e|aarch64) OSX_ARCH=arm64 ;;
       x86_64h)              OSX_ARCH=x86_64h ;;
@@ -65,7 +69,8 @@ case "$TARGET" in
     CCWRAP="$(ls "$TC/bin/${OSX_ARCH}-apple-darwin"*-clang 2>/dev/null | head -n1 || true)"
     [ -n "$CCWRAP" ] || { echo "osxcross clang wrapper for $OSX_ARCH not found" >&2; exit 1; }
     HOST="$(basename "${CCWRAP%-clang}")"
-    CC="$TC/bin/${HOST}-clang"; CXX="$TC/bin/${HOST}-clang++"; RANLIB="$TC/bin/${HOST}-ranlib"
+    CC="$TC/bin/${HOST}-clang"; CXX="$TC/bin/${HOST}-clang++"
+    AR="$TC/bin/${HOST}-ar"; RANLIB="$TC/bin/${HOST}-ranlib"
     case "$ARCH" in
       arm64|arm64e|aarch64) OPENSSL_TARGET="darwin64-arm64-cc" ;;
       *)                    OPENSSL_TARGET="darwin64-x86_64-cc" ;;
@@ -75,7 +80,7 @@ case "$TARGET" in
     TC=/opt/zig-as-llvm
     [ -d "$ROOTDIR/patches/zig" ] && cp -R "$ROOTDIR/patches/zig/." /opt/zig/ || true
     export ZIG_TARGET="$TARGET"
-    CC="$TC/bin/cc"; CXX="$TC/bin/c++"; RANLIB="$TC/bin/ranlib"
+    CC="$TC/bin/cc"; CXX="$TC/bin/c++"; AR="$TC/bin/ar"; RANLIB="$TC/bin/ranlib"
     case "$OS_FIELD" in
       freebsd|netbsd|openbsd)
         case "$ARCH" in
@@ -114,9 +119,11 @@ rm -f /tmp/openssl.tar.gz
 mv "$ROOTDIR/openssl-1.1.1w" "$ROOTDIR/openssl"
 cd "$ROOTDIR/openssl"
 sed -i '/^\s*shared_cflag\s*=>\s*"-fPIC",\s*$/d' Configurations/10-main.conf
-[ "$APPLY_TIME64" = 1 ] && patch -p1 < "$ROOTDIR/patches/openssl/fix-io_getevents-time64.patch"
-patch -p1 < "$ROOTDIR/patches/openssl/android.patch"
-CC="$CC" CXX="$CXX" RANLIB="$RANLIB" \
+if [ "$APPLY_PATCHES" = 1 ]; then
+  patch -p1 < "$ROOTDIR/patches/openssl/fix-io_getevents-time64.patch"
+  patch -p1 < "$ROOTDIR/patches/openssl/android.patch"
+fi
+CC="$CC" CXX="$CXX" AR="$AR" RANLIB="$RANLIB" \
   ./Configure "$OPENSSL_TARGET" no-shared no-async no-tests no-dso \
     --prefix="$EXTRAS_DIR" --openssldir="/etc/ssl"
 make -j"$(nproc)"

@@ -57,6 +57,9 @@ case "$TARGET" in
     TARGET_OS=Linux
     ZIG_C_FLAGS=""; ZIG_CXX_FLAGS=""
     ZIG_LINKER_FLAGS="-static-libstdc++"
+    # bionic satisfies both POSIX and glibc strerror_r try-compiles; force POSIX so
+    # cmcurl doesn't need the cross-impossible disambiguating try_run.
+    EXTRA_CMAKE=(-DHAVE_GLIBC_STRERROR_R=0)
     ;;
   *-apple-darwin*)
     # macOS via osxcross (cctools-port + clang wrappers carrying the SDK sysroot);
@@ -82,7 +85,9 @@ case "$TARGET" in
     TARGET_OS=Darwin
     ZIG_C_FLAGS=""; ZIG_CXX_FLAGS=""; ZIG_LINKER_FLAGS=""
     SDKROOT="$(ls -d "$TC/SDK/MacOSX"*.sdk 2>/dev/null | head -n1 || true)"
-    EXTRA_CMAKE=(-DCMAKE_OSX_ARCHITECTURES="$OSX_ARCH" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0)
+    # darwin strerror_r is POSIX; force it (same cross try_run issue as bionic).
+    EXTRA_CMAKE=(-DCMAKE_OSX_ARCHITECTURES="$OSX_ARCH" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+                 -DHAVE_GLIBC_STRERROR_R=0)
     [ -n "$SDKROOT" ] && EXTRA_CMAKE+=(-DCMAKE_OSX_SYSROOT="$SDKROOT")
     # cctools libtool under the plain name, in case a step shells out to it.
     LIBTOOLBIN="$(ls "$TC/bin/${OSX_ARCH}-apple-darwin"*-libtool 2>/dev/null | head -n1 || true)"
@@ -142,6 +147,7 @@ build_project() {
         -DCMAKE_CXX_FLAGS="$ZIG_CXX_FLAGS"
         -DCMAKE_EXE_LINKER_FLAGS="$ZIG_LINKER_FLAGS"
         -DCMAKE_INSTALL_PREFIX="$install_dir"
+        -DBUILD_TESTING=OFF
         -G Ninja
     )
     if [ "$name" = CMake ]; then
