@@ -3,7 +3,8 @@
  * ninja uses the posix_spawn family, which bionic only exports at API 28+ (we
  * target 25). bionic declares the posix_spawn*_t types but gates the functions,
  * so complete those opaque structs and implement the subset ninja needs via
- * fork/exec. Functions are static+unused -> emitted only where referenced. */
+ * fork/exec, with a CLOEXEC self-pipe so exec/setup errno reaches the parent
+ * (real POSIX semantics, not a stub). Statics -> emitted only where used. */
 #ifndef CMAKE_ANDROID_COMPAT_H
 #define CMAKE_ANDROID_COMPAT_H
 
@@ -17,6 +18,7 @@
 #include <string.h>
 #include <errno.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 
 #ifndef POSIX_SPAWN_SETPGROUP
 #define POSIX_SPAWN_SETPGROUP 0x01
@@ -103,37 +105,74 @@ int posix_spawn_file_actions_destroy(posix_spawn_file_actions_t *fa) {
   free(p); *fa = 0; return 0;
 }
 
+/* Report a setup/exec failure from the child to the parent: write errno down
+ * the CLOEXEC self-pipe, then _exit. The pipe closes on a successful execve,
+ * so a zero-length read in the parent means "exec succeeded". */
+static inline __attribute__((__unused__))
+void __cmake_spawn_fail(int wfd) {
+  int e = errno;
+  while (write(wfd, &e, sizeof e) < 0 && errno == EINTR) {}
+  _exit(127);
+}
+
 static inline __attribute__((__unused__))
 int posix_spawn(pid_t *pid, const char *path,
                 const posix_spawn_file_actions_t *fa,
                 const posix_spawnattr_t *attr,
                 char *const argv[], char *const envp[]) {
+  int err_pipe[2];
+  if (pipe(err_pipe) < 0) return errno;
+  /* CLOEXEC so a successful execve auto-closes the write end (EOF for parent),
+   * and the descriptors never leak into the spawned program. */
+  fcntl(err_pipe[0], F_SETFD, FD_CLOEXEC);
+  fcntl(err_pipe[1], F_SETFD, FD_CLOEXEC);
+
   pid_t c = fork();
-  if (c < 0) return errno;
+  if (c < 0) {
+    int e = errno;
+    close(err_pipe[0]); close(err_pipe[1]);
+    return e;
+  }
   if (c == 0) {
+    close(err_pipe[0]);
     if (attr && *attr) {
       struct __posix_spawnattr *ap = *attr;
-      if (ap->flags & POSIX_SPAWN_SETPGROUP) setpgid(0, ap->pgroup);
-      if (ap->flags & POSIX_SPAWN_SETSIGMASK) sigprocmask(SIG_SETMASK, &ap->sigmask, 0);
+      if ((ap->flags & POSIX_SPAWN_SETPGROUP) && setpgid(0, ap->pgroup) < 0)
+        __cmake_spawn_fail(err_pipe[1]);
+      if ((ap->flags & POSIX_SPAWN_SETSIGMASK) &&
+          sigprocmask(SIG_SETMASK, &ap->sigmask, 0) < 0)
+        __cmake_spawn_fail(err_pipe[1]);
     }
     if (fa && *fa) {
       struct __fa_act *act = (*fa)->head;
       for (; act; act = act->next) {
-        int r = 0;
         if (act->type == __FA_OPEN) {
           int f = open(act->path, act->oflag, act->mode);
-          if (f < 0) _exit(127);
-          if (f != act->fd) { r = dup2(f, act->fd); close(f); }
+          if (f < 0) __cmake_spawn_fail(err_pipe[1]);
+          if (f != act->fd) {
+            if (dup2(f, act->fd) < 0) { close(f); __cmake_spawn_fail(err_pipe[1]); }
+            close(f);
+          }
         } else if (act->type == __FA_CLOSE) {
-          r = close(act->fd);
+          if (close(act->fd) < 0) __cmake_spawn_fail(err_pipe[1]);
         } else { /* __FA_DUP2 */
-          r = dup2(act->fd, act->newfd);
+          if (dup2(act->fd, act->newfd) < 0) __cmake_spawn_fail(err_pipe[1]);
         }
-        if (r < 0) _exit(127);
       }
     }
     execve(path, argv, envp);
-    _exit(127);
+    __cmake_spawn_fail(err_pipe[1]);
+  }
+
+  close(err_pipe[1]);
+  /* Read the child's errno, if any. EOF (n == 0) => execve succeeded. */
+  int child_err = 0, n;
+  while ((n = read(err_pipe[0], &child_err, sizeof child_err)) < 0 && errno == EINTR) {}
+  close(err_pipe[0]);
+  if (n > 0) {
+    int st;
+    while (waitpid(c, &st, 0) < 0 && errno == EINTR) {}  /* reap; don't leak a zombie */
+    return child_err;
   }
   if (pid) *pid = c;
   return 0;
