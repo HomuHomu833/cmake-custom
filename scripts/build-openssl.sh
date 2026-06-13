@@ -18,9 +18,6 @@ cd "$ROOTDIR"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
-# 64-bit MIPS OpenSSL doesn't cross-build cleanly; build.sh also drops OpenSSL there.
-case "$TARGET" in mips64*) log "OpenSSL skipped for $TARGET"; exit 0 ;; esac
-
 # --- per-platform compiler + OpenSSL Configure target -----------------------
 # APPLY_TIME64 gates the musl/linux io_getevents time64 fix (irrelevant on
 # mingw/darwin). CC/CXX/RANLIB select the toolchain.
@@ -95,6 +92,7 @@ case "$TARGET" in
           armeb)           OPENSSL_TARGET="linux-generic32" ;;
           loongarch64)     OPENSSL_TARGET="linux64-loongarch64" ;;
           mips|mipsel)     OPENSSL_TARGET="linux-mips32" ;;
+          mips64|mips64el) OPENSSL_TARGET="linux64-mips64" ;;
           powerpc)         OPENSSL_TARGET="linux-ppc" ;;
           powerpc64)       OPENSSL_TARGET="linux-ppc64" ;;
           powerpc64le)     OPENSSL_TARGET="linux-ppc64le" ;;

@@ -145,15 +145,14 @@ build_project() {
         -G Ninja
     )
     if [ "$name" = CMake ]; then
-        # 64-bit MIPS can't build OpenSSL (see build-openssl.sh), so drop the dep.
-        case "$TARGET" in mips64*|hexagon*) openssl_flag="-DCMAKE_USE_OPENSSL=OFF" ;; *) openssl_flag="-DCMAKE_USE_OPENSSL=ON" ;; esac
+        # OpenSSL is built for every target (build-openssl.sh runs first).
         cmake_flags+=(
             -DBUILD_SHARED_LIBS=OFF
             -DHAVE_POSIX_STRERROR_R=1 -DHAVE_POSIX_STRERROR_R__TRYRUN_OUTPUT=""
             -DHAVE_POLL_FINE_EXITCODE=1
             -DKWSYS_LFS_WORKS=1 -DKWSYS_LFS_WORKS__TRYRUN_OUTPUT=""
             -DHAVE_FSETXATTR_5=1 -DHAVE_FSETXATTR_5__TRYRUN_OUTPUT=""
-            "$openssl_flag"
+            -DCMAKE_USE_OPENSSL=ON
             -DCMAKE_USE_SYSTEM_CURL=OFF -DCMAKE_USE_SYSTEM_ZLIB=OFF
             -DCMAKE_USE_SYSTEM_KWIML=OFF -DCMAKE_USE_SYSTEM_LIBRHASH=OFF
             -DCMAKE_USE_SYSTEM_EXPAT=OFF -DCMAKE_USE_SYSTEM_BZIP2=OFF
