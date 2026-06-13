@@ -18,6 +18,13 @@ cd "$ROOTDIR"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
+# OpenSSL 1.1.1 has no ARM64-Windows Configure target; that build uses cmcurl's
+# native Schannel backend instead (build.sh sets CMAKE_USE_OPENSSL=OFF).
+if [ "$TARGET" = aarch64-w64-mingw32 ]; then
+  log "Skipping OpenSSL for $TARGET (no 1.1.1 arm64-mingw target; curl uses Schannel)"
+  exit 0
+fi
+
 # --- per-platform compiler + OpenSSL Configure target -----------------------
 # APPLY_PATCHES gates the time64 + android source patches; off for mingw/macos
 # (android.patch adds POSIX dirent code mingw lacks; neither patch fits darwin).

@@ -23,6 +23,9 @@ log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 # Per-platform toolchain + flags. EXTRA_CMAKE carries any platform-specific -D
 # flags (e.g. macOS sysroot/arch) appended to every configure.
 EXTRA_CMAKE=()
+# OpenSSL backs cmcurl on every target except where it's unavailable; there
+# cmcurl falls back to a native TLS backend (Schannel on Windows).
+USE_OPENSSL=ON
 case "$TARGET" in
   *-w64-mingw32)
     TC=/opt/llvm-mingw
@@ -42,6 +45,9 @@ case "$TARGET" in
     # bare `windres`, which llvm-mingw only ships target-prefixed. Point it there.
     export RC="$TC/bin/${TARGET}-windres"; export WINDRES="$RC"
     EXTRA_CMAKE=(-DCMAKE_RC_COMPILER="$RC")
+    # OpenSSL 1.1.1 has no ARM64-Windows target, so cmcurl uses Schannel there
+    # (CMAKE_USE_OPENSSL=OFF + WIN32 -> CURL_USE_SCHANNEL); build-openssl skips it.
+    [ "$TARGET" = aarch64-w64-mingw32 ] && USE_OPENSSL=OFF
     ;;
   *-linux-android*)
     # Android (bionic) via the official NDK clang, so cmake/ninja run on-device
@@ -167,7 +173,7 @@ build_project() {
             -DHAVE_POLL_FINE_EXITCODE=1
             -DKWSYS_LFS_WORKS=1 -DKWSYS_LFS_WORKS__TRYRUN_OUTPUT=""
             -DHAVE_FSETXATTR_5=1 -DHAVE_FSETXATTR_5__TRYRUN_OUTPUT=""
-            -DCMAKE_USE_OPENSSL=ON
+            -DCMAKE_USE_OPENSSL="$USE_OPENSSL"
             -DCMAKE_USE_SYSTEM_CURL=OFF -DCMAKE_USE_SYSTEM_ZLIB=OFF
             -DCMAKE_USE_SYSTEM_KWIML=OFF -DCMAKE_USE_SYSTEM_LIBRHASH=OFF
             -DCMAKE_USE_SYSTEM_EXPAT=OFF -DCMAKE_USE_SYSTEM_BZIP2=OFF
@@ -213,9 +219,15 @@ case "$TARGET" in
     # cpumask entry point, which then returns UV_ENOTSUP).
     sed -i 's/#if defined(__linux__) || defined(__FreeBSD__)/#if (defined(__linux__) || defined(__FreeBSD__)) \&\& !defined(__ANDROID__)/' \
         "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/src/unix/process.c" || true
-    # We build android with CMAKE_SYSTEM_NAME=Linux, so cmlibuv links the Linux
-    # libs (dl rt). bionic folded librt into libc and ships no librt, so drop rt.
+    # We build android with CMAKE_SYSTEM_NAME=Linux, so cmlibuv uses its Linux
+    # source/lib set. Two bionic adjustments to that set:
+    #  - bionic folded librt into libc (no librt ships), so drop rt from the libs.
+    #  - the NDK clang defines __ANDROID__, which makes internal.h redirect every
+    #    pthread_sigmask to uv__pthread_sigmask (defined in pthread-fixes.c). That
+    #    file is only in cmlibuv's absent Android branch, so add it to the sources.
     sed -i 's/list(APPEND uv_libraries dl rt)/list(APPEND uv_libraries dl)/' \
+        "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/CMakeLists.txt" || true
+    sed -i 's#src/unix/epoll.c#src/unix/pthread-fixes.c\n    src/unix/epoll.c#' \
         "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/CMakeLists.txt" || true
     ;;
   *-netbsd-*)
