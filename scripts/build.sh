@@ -33,13 +33,10 @@ case "$TARGET" in
     TARGET_OS=Windows
     ZIG_C_FLAGS=""
     ZIG_CXX_FLAGS=""
-    # Static libwinpthread, but NOT --whole-archive: that force-pulls winpthread's
-    # own version.o (a VERSIONINFO resource) which then collides with cmake's
-    # CMakeVersion.rc.res ("duplicate resource"). On-demand linking is enough since
-    # libuv uses Win32 threads and only libc++ pulls a few pthread symbols.
+    # Static libwinpthread, no --whole-archive (it pulls winpthread's version.o
+    # VERSIONINFO, clashing with cmake's CMakeVersion.rc.res).
     ZIG_LINKER_FLAGS="-static-libstdc++ -static-libgcc -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic"
-    # CMake compiles its own .rc resources; it defaults CMAKE_RC_COMPILER to the
-    # bare `windres`, which llvm-mingw only ships target-prefixed. Point it there.
+    # cmake's .rc build calls bare `windres`; llvm-mingw only ships it prefixed.
     export RC="$TC/bin/${TARGET}-windres"; export WINDRES="$RC"
     EXTRA_CMAKE=(-DCMAKE_RC_COMPILER="$RC")
     ;;
@@ -63,8 +60,7 @@ case "$TARGET" in
     ZIG_LD="$TC/bin/ld"; ZIG_AR="$TC/bin/llvm-ar"; ZIG_RANLIB="$TC/bin/llvm-ranlib"
     ZIG_STRIP="$TC/bin/llvm-strip"; ZIG_OBJCOPY="$TC/bin/llvm-objcopy"
     TARGET_OS=Linux
-    # -I patches/cmake: resolves libarchive's "android_lf.h" (a stub) under __ANDROID__.
-    # (The posix_spawn shim is force-included for the ninja build only; see below.)
+    # -I patches/cmake: stub "android_lf.h" libarchive includes under __ANDROID__.
     ZIG_C_FLAGS="-I$ROOTDIR/patches/cmake"; ZIG_CXX_FLAGS="$ZIG_C_FLAGS"
     ZIG_LINKER_FLAGS="-static-libstdc++"
     ;;
@@ -199,26 +195,21 @@ sed -i '/auto separator = cm::string_view{/,/}/c\
 }' "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmWindowsRegistry.cxx" || true
 cp "$ROOTDIR/patches/cmake/cmCurl.cxx" "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmCurl.cxx"
 
-# CompileFlags.cmake forces _TIME_BITS=64 on 32-bit Linux, giving cmake's own
-# sources a 64-bit time_t. zig's prebuilt libc++ for 32-bit glibc is 32-bit
-# time_t, so chrono's system_clock::from_time_t fails to link. Drop _TIME_BITS=64
-# (keep _FILE_OFFSET_BITS=64); musl is always 64-bit time_t so it's unaffected.
+# cmake forces _TIME_BITS=64 on 32-bit Linux, but zig's 32-bit-glibc libc++ is
+# 32-bit time_t -> chrono::from_time_t won't link. Drop it (musl is always 64-bit).
 sed -i 's/add_compile_definitions(_FILE_OFFSET_BITS=64 _TIME_BITS=64)/add_compile_definitions(_FILE_OFFSET_BITS=64)/' \
     "$ROOTDIR/cmake-$CMAKE_VERSION/CompileFlags.cmake" || true
 
 case "$TARGET" in
   *-linux-android*)
-    # bionic lacks pthread_setaffinity_np before API 36; disable cmlibuv's CPU
-    # affinity block on Android (the three guards cover its decls, use, and the
-    # cpumask entry point, which then returns UV_ENOTSUP).
+    # pthread_setaffinity_np is bionic API 36+; gate off cmlibuv's affinity block
+    # (3 __linux__||__FreeBSD__ guards: its decls, use, and cpumask entry).
     sed -i 's/#if defined(__linux__) || defined(__FreeBSD__)/#if (defined(__linux__) || defined(__FreeBSD__)) \&\& !defined(__ANDROID__)/' \
         "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/src/unix/process.c" || true
-    # We build android with CMAKE_SYSTEM_NAME=Linux, so cmlibuv uses its Linux
-    # source/lib set. Two bionic adjustments to that set:
-    #  - bionic folded librt into libc (no librt ships), so drop rt from the libs.
-    #  - the NDK clang defines __ANDROID__, which makes internal.h redirect every
-    #    pthread_sigmask to uv__pthread_sigmask (defined in pthread-fixes.c). That
-    #    file is only in cmlibuv's absent Android branch, so add it to the sources.
+    # android builds as CMAKE_SYSTEM_NAME=Linux, so cmlibuv uses its Linux set:
+    #  - drop rt: bionic folded librt into libc.
+    #  - add pthread-fixes.c: __ANDROID__ redirects pthread_sigmask to
+    #    uv__pthread_sigmask, defined only in cmlibuv's absent Android branch.
     sed -i 's/list(APPEND uv_libraries dl rt)/list(APPEND uv_libraries dl)/' \
         "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/CMakeLists.txt" || true
     sed -i 's#src/unix/epoll.c#src/unix/pthread-fixes.c\n    src/unix/epoll.c#' \
@@ -238,11 +229,9 @@ clone_repo "https://github.com/ninja-build/ninja.git" "v$NINJA_VERSION" "$ROOTDI
 build_project CMake "$ROOTDIR/cmake-$CMAKE_VERSION" \
     "$BUILD_DIR/cmake-$CMAKE_VERSION-$TARGET" "$BUILD_DIR/binary-cmake-$CMAKE_VERSION-$TARGET"
 
-# ninja 1.12 needs posix_spawn (bionic gates it to API 28+, we target 25); supply
-# it via the force-included shim. Scope this to the ninja build ONLY: doing it for
-# cmake would pull system headers into its CHECK_FUNCTION_EXISTS probes and break
-# them (its bogus `char fchdir();` prototype clashes with the real one -> the probe
-# fails -> HAVE_FCHDIR unset -> libarchive's "#error fchdir function required").
+# ninja needs posix_spawn (bionic API 28+, we target 25): force-include the shim.
+# Ninja only — for cmake it poisons CHECK_FUNCTION_EXISTS (its `char fchdir();`
+# clashes with the real decl -> HAVE_FCHDIR unset -> libarchive #errors out).
 case "$TARGET" in
   *-linux-android*)
     ZIG_C_FLAGS="$ZIG_C_FLAGS -include $ROOTDIR/patches/cmake/android_compat.h"

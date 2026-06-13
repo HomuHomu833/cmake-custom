@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cross-build static OpenSSL 1.1.1w for one target (CMake's bundled curl links it).
+# Cross-build static OpenSSL (default 3.6.3) for one target; CMake's curl links it.
 # Driven by env vars so it runs identically in CI and in `docker run`.
 #
 #   TARGET    target triple (e.g. x86_64-linux-musl, aarch64-linux-gnu,
@@ -32,8 +32,7 @@ case "$TARGET" in
     TC=/opt/llvm-mingw
     CC="$TC/bin/${TARGET}-clang"; CXX="$TC/bin/${TARGET}-clang++"
     AR="$TC/bin/${TARGET}-ar"; RANLIB="$TC/bin/${TARGET}-ranlib"
-    # OpenSSL's mingw build invokes the resource compiler as bare `windres`;
-    # llvm-mingw only ships the target-prefixed name. Point RC/WINDRES at it.
+    # OpenSSL's mingw build calls bare `windres`; llvm-mingw ships it prefixed.
     export RC="$TC/bin/${TARGET}-windres"; export WINDRES="$RC"
     APPLY_PATCHES=0
     case "$TARGET" in

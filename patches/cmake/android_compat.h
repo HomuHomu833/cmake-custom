@@ -1,12 +1,9 @@
-/* Android (bionic) build compatibility shim, force-included via build.sh.
+/* Android compat shim, force-included for the ninja build (see build.sh).
  *
- * ninja 1.12's subprocess-posix.cc uses the posix_spawn family unconditionally,
- * but bionic only declares/exports it at API 28+. We target API 25 (matching
- * android-sdk-custom-experimental), so supply a fork/exec implementation for
- * API < 28. bionic declares the posix_spawn*_t types unconditionally and gates
- * only the functions, so we complete those opaque structs and implement the
- * subset of operations ninja needs. Each function is static+unused, so it is
- * emitted only in the TU that actually references it (ninja's subprocess). */
+ * ninja uses the posix_spawn family, which bionic only exports at API 28+ (we
+ * target 25). bionic declares the posix_spawn*_t types but gates the functions,
+ * so complete those opaque structs and implement the subset ninja needs via
+ * fork/exec. Functions are static+unused -> emitted only where referenced. */
 #ifndef CMAKE_ANDROID_COMPAT_H
 #define CMAKE_ANDROID_COMPAT_H
 
