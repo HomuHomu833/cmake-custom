@@ -1,0 +1,43 @@
+name: Make CMake (Linux)
+run-name: Make CMake ${{ inputs.cmake_version }}
+on:
+  workflow_dispatch:
+    inputs:
+      cmake_version:
+        description: "CMake Version"
+        required: true
+        default: "4.1.2"
+      ninja_version:
+        description: "Ninja Version"
+        required: true
+        default: "1.12.1"
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  make:
+    uses: ./.github/workflows/make-cmake.yml
+    secrets: inherit
+    with:
+      platform: linux
+      cmake_version: ${{ inputs.cmake_version }}
+      ninja_version: ${{ inputs.ninja_version }}
+      # mips* are dropped: 64-bit MIPS can't build OpenSSL and CMake's tryruns
+      # are unreliable there.
+      targets: >-
+        ["aarch64-linux-musl", "aarch64-linux-gnu", "aarch64_be-linux-gnu",
+         "aarch64_be-linux-musl", "arm-linux-gnueabi", "arm-linux-gnueabihf",
+         "arm-linux-musleabi", "arm-linux-musleabihf", "armeb-linux-gnueabi",
+         "armeb-linux-gnueabihf", "armeb-linux-musleabi", "armeb-linux-musleabihf",
+         "hexagon-linux-musl", "loongarch64-linux-gnu", "loongarch64-linux-musl",
+         "loongarch64-linux-muslf32", "loongarch64-linux-gnusf",
+         "loongarch64-linux-muslsf",
+         "powerpc-linux-musleabi", "powerpc-linux-musleabihf",
+         "powerpc64-linux-musl", "powerpc64le-linux-musl",
+         "riscv32-linux-gnu", "riscv32-linux-musl",
+         "riscv64-linux-musl", "riscv64-linux-gnu", "s390x-linux-gnu",
+         "s390x-linux-musl",
+         "x86-linux-gnu", "x86-linux-musl", "x86_64-linux-musl",
+         "x86_64-linux-muslx32", "x86_64-linux-gnu"]
