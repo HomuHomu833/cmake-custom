@@ -2,6 +2,7 @@
 # Cross-build static OpenSSL (default 3.6.3) for one target; CMake's curl links it.
 # Driven by env vars so it runs identically in CI and in `docker run`.
 #
+#   PLATFORM  linux | bsd | windows | macos | android  (selects the toolchain)
 #   TARGET    target triple (e.g. x86_64-linux-musl, aarch64-linux-gnu,
 #             aarch64-freebsd-none, aarch64-linux-android, arm64-apple-darwin,
 #             x86_64-w64-mingw32)
@@ -10,9 +11,8 @@
 set -euo pipefail
 
 ROOTDIR="${ROOTDIR:-$PWD}"
-: "${TARGET:?set TARGET}"
+: "${PLATFORM:?set PLATFORM}" "${TARGET:?set TARGET}"
 ARCH="${TARGET%%-*}"
-OS_FIELD="$(echo "$TARGET" | cut -d- -f2)"
 EXTRAS_DIR="$ROOTDIR/extras"
 cd "$ROOTDIR"
 
@@ -21,26 +21,27 @@ log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 OPENSSL_VERSION="${OPENSSL_VERSION:-3.6.3}"
 
 # --- per-platform compiler + OpenSSL Configure target -----------------------
-# APPLY_PATCHES gates the android source patch; off for mingw/macos (the cert
+# Dispatch on PLATFORM (not the triple) so the toolchain is chosen explicitly.
+# APPLY_PATCHES gates the android source patch; off for windows/macos (the cert
 # bundle is a bionic on-device concern and pulls POSIX dirent code those lack).
 # CC/CXX/AR/RANLIB select the toolchain — AR matters for macOS (ld64 rejects a
 # GNU-format archive, so OpenSSL must use the cctools ar).
 APPLY_PATCHES=1
 SSL_EXTRA=""
-case "$TARGET" in
-  *-w64-mingw32)
+case "$PLATFORM" in
+  windows)
     TC=/opt/llvm-mingw
     CC="$TC/bin/${TARGET}-clang"; CXX="$TC/bin/${TARGET}-clang++"
     AR="$TC/bin/${TARGET}-ar"; RANLIB="$TC/bin/${TARGET}-ranlib"
     # OpenSSL's mingw build calls bare `windres`; llvm-mingw ships it prefixed.
     export RC="$TC/bin/${TARGET}-windres"; export WINDRES="$RC"
     APPLY_PATCHES=0
-    case "$TARGET" in
-      x86_64-w64-mingw32)  OPENSSL_TARGET="mingw64" ;;
-      aarch64-w64-mingw32) OPENSSL_TARGET="mingwarm64" ;;   # OpenSSL 3.6+
-      i686-w64-mingw32)    OPENSSL_TARGET="mingw" ;;
+    case "$ARCH" in
+      x86_64)  OPENSSL_TARGET="mingw64" ;;
+      aarch64) OPENSSL_TARGET="mingwarm64" ;;   # OpenSSL 3.6+
+      i686)    OPENSSL_TARGET="mingw" ;;
     esac ;;
-  *-linux-android*)
+  android)
     : "${NDK_VERSION:?set NDK_VERSION for the android build}"
     NDK_REVISION="${NDK_REVISION:-}"
     API="${ANDROID_PLATFORM:-25}"; [ "$TARGET" = riscv64-linux-android ] && API=35
@@ -65,7 +66,7 @@ case "$TARGET" in
     # 32-bit x86 OpenSSL asm uses non-PIC absolute relocs (R_386_32); they fail
     # linking into Android's mandatory-PIE executables, so build it in C.
     [ "$ARCH" = i686 ] && SSL_EXTRA="$SSL_EXTRA no-asm" ;;
-  *-apple-darwin*)
+  macos)
     TC=/opt/osxcross; export PATH="$TC/bin:$PATH"
     export MACOSX_DEPLOYMENT_TARGET=11.0
     APPLY_PATCHES=0
@@ -83,58 +84,62 @@ case "$TARGET" in
       arm64|arm64e|aarch64) OPENSSL_TARGET="darwin64-arm64-cc" ;;
       *)                    OPENSSL_TARGET="darwin64-x86_64-cc" ;;
     esac ;;
-  *)
-    # zig (musl/gnu linux + bsd). Overlay the musl libc source fixes (lib is a+w).
+  linux)
+    # zig (musl/gnu). Overlay the musl libc source fixes (lib is a+w).
     TC=/opt/zig-as-llvm
     [ -d "$ROOTDIR/patches/zig" ] && cp -R "$ROOTDIR/patches/zig/." /opt/zig/ || true
     export ZIG_TARGET="$TARGET"
     CC="$TC/bin/cc"; CXX="$TC/bin/c++"; AR="$TC/bin/ar"; RANLIB="$TC/bin/ranlib"
-    case "$OS_FIELD" in
-      freebsd|netbsd|openbsd)
-        # The /dev/crypto engine needs <crypto/cryptodev.h>, absent from some BSD
-        # zig sysroots (e.g. OpenBSD); cmake's curl doesn't need it.
-        SSL_EXTRA="no-devcryptoeng"
-        # OpenSSL's 32-bit x86 BSD perlasm emits .align values clang's integrated
-        # assembler rejects ("alignment must be a power of 2"); build it in C.
-        [ "$ARCH" = x86 ] && SSL_EXTRA="$SSL_EXTRA no-asm"
-        case "$ARCH" in
-          x86)                                          OPENSSL_TARGET="BSD-x86" ;;
-          x86_64|x86_64h)                               OPENSSL_TARGET="BSD-x86_64" ;;
-          arm|armhf|armeb|riscv32|powerpc|mips|mipsel)  OPENSSL_TARGET="BSD-generic32" ;;
-          *)                                            OPENSSL_TARGET="BSD-generic64" ;;
-        esac ;;
-      *)
-        case "$ARCH" in
-          aarch64)         OPENSSL_TARGET="linux-aarch64" ;;
-          aarch64_be)      OPENSSL_TARGET="linux-generic64" ;;
-          arm|armhf)       OPENSSL_TARGET="linux-armv4" ;;
-          armeb)           OPENSSL_TARGET="linux-generic32" ;;
-          loongarch64)     OPENSSL_TARGET="linux64-loongarch64" ;;
-          mips|mipsel)     OPENSSL_TARGET="linux-mips32" ;;
-          mips64|mips64el) OPENSSL_TARGET="linux64-mips64" ;;
-          powerpc)         OPENSSL_TARGET="linux-ppc" ;;
-          powerpc64)       OPENSSL_TARGET="linux-ppc64" ;;
-          powerpc64le)     OPENSSL_TARGET="linux-ppc64le" ;;
-          riscv32|hexagon) OPENSSL_TARGET="linux-generic32" ;;
-          riscv64)         OPENSSL_TARGET="linux64-riscv64" ;;
-          s390x)           OPENSSL_TARGET="linux64-s390x" ;;
-          x86)             OPENSSL_TARGET="linux-x86" ;;
-          x86_64)          case "$TARGET" in *x32) OPENSSL_TARGET="linux-x32" ;; *) OPENSSL_TARGET="linux-x86_64" ;; esac ;;
-          *)               OPENSSL_TARGET="linux-generic64" ;;
-        esac ;;
+    case "$ARCH" in
+      aarch64)         OPENSSL_TARGET="linux-aarch64" ;;
+      aarch64_be)      OPENSSL_TARGET="linux-generic64" ;;
+      arm|armhf)       OPENSSL_TARGET="linux-armv4" ;;
+      armeb)           OPENSSL_TARGET="linux-generic32" ;;
+      loongarch64)     OPENSSL_TARGET="linux64-loongarch64" ;;
+      mips|mipsel)     OPENSSL_TARGET="linux-mips32" ;;
+      mips64|mips64el) OPENSSL_TARGET="linux64-mips64" ;;
+      powerpc)         OPENSSL_TARGET="linux-ppc" ;;
+      powerpc64)       OPENSSL_TARGET="linux-ppc64" ;;
+      powerpc64le)     OPENSSL_TARGET="linux-ppc64le" ;;
+      riscv32|hexagon) OPENSSL_TARGET="linux-generic32" ;;
+      riscv64)         OPENSSL_TARGET="linux64-riscv64" ;;
+      s390x)           OPENSSL_TARGET="linux64-s390x" ;;
+      x86)             OPENSSL_TARGET="linux-x86" ;;
+      x86_64)          case "$TARGET" in *x32) OPENSSL_TARGET="linux-x32" ;; *) OPENSSL_TARGET="linux-x86_64" ;; esac ;;
+      *)               OPENSSL_TARGET="linux-generic64" ;;
     esac ;;
+  bsd)
+    # zig (same wrappers as linux), all BSD targets.
+    TC=/opt/zig-as-llvm
+    [ -d "$ROOTDIR/patches/zig" ] && cp -R "$ROOTDIR/patches/zig/." /opt/zig/ || true
+    export ZIG_TARGET="$TARGET"
+    CC="$TC/bin/cc"; CXX="$TC/bin/c++"; AR="$TC/bin/ar"; RANLIB="$TC/bin/ranlib"
+    # The /dev/crypto engine needs <crypto/cryptodev.h>, absent from some BSD
+    # zig sysroots (e.g. OpenBSD); cmake's curl doesn't need it.
+    SSL_EXTRA="no-devcryptoeng"
+    # OpenSSL's 32-bit x86 BSD perlasm emits .align values clang's integrated
+    # assembler rejects ("alignment must be a power of 2"); build it in C.
+    [ "$ARCH" = x86 ] && SSL_EXTRA="$SSL_EXTRA no-asm"
+    case "$ARCH" in
+      x86)                                          OPENSSL_TARGET="BSD-x86" ;;
+      x86_64|x86_64h)                               OPENSSL_TARGET="BSD-x86_64" ;;
+      arm|armhf|armeb|riscv32|powerpc|mips|mipsel)  OPENSSL_TARGET="BSD-generic32" ;;
+      *)                                            OPENSSL_TARGET="BSD-generic64" ;;
+    esac ;;
+  *) echo "Unknown/unsupported PLATFORM='$PLATFORM'" >&2; exit 1 ;;
 esac
 
 # OpenSSL 3.x guards its 64-bit RCU/refcount atomics with __atomic_is_lock_free;
 # on 32-bit that's a libatomic runtime call the zig sysroots don't provide.
 # BROKEN_CLANG_ATOMICS routes those ops through OpenSSL's pthread-mutex fallback.
-# (Scoped to zig: NDK/llvm-mingw 32-bit targets link libatomic themselves.)
-if [ "$TC" = /opt/zig-as-llvm ]; then
-  case "$ARCH" in
-    x86|arm|armhf|armeb|riscv32|powerpc|mips|mipsel|hexagon)
-      SSL_EXTRA="$SSL_EXTRA -DBROKEN_CLANG_ATOMICS" ;;
-  esac
-fi
+# (zig linux/bsd only: NDK/llvm-mingw 32-bit targets link libatomic themselves.)
+case "$PLATFORM" in
+  linux|bsd)
+    case "$ARCH" in
+      x86|arm|armhf|armeb|riscv32|powerpc|mips|mipsel|hexagon)
+        SSL_EXTRA="$SSL_EXTRA -DBROKEN_CLANG_ATOMICS" ;;
+    esac ;;
+esac
 
 log "Building OpenSSL ($TARGET -> $OPENSSL_TARGET)"
 rm -rf "$EXTRAS_DIR" "$ROOTDIR/openssl"

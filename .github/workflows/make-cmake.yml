@@ -68,6 +68,7 @@ jobs:
           docker run --rm \
             -v "$PWD:/work" -w /work --user "$(id -u):$(id -g)" \
             -e HOME=/work \
+            -e PLATFORM='${{ inputs.platform }}' \
             -e TARGET='${{ matrix.target }}' \
             -e CMAKE_VERSION='${{ inputs.cmake_version }}' \
             -e NINJA_VERSION='${{ inputs.ninja_version }}' \

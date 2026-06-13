@@ -3,6 +3,7 @@
 # tree. Driven by env vars so it runs identically in CI and in `docker run`.
 # Run build-openssl.sh first (CMake's bundled curl links the OpenSSL it produces).
 #
+#   PLATFORM        linux | bsd | windows | macos | android  (selects the toolchain)
 #   TARGET          target triple (e.g. x86_64-linux-musl, aarch64-linux-gnu,
 #                   aarch64-freebsd-none)
 #   CMAKE_VERSION   Kitware/CMake tag, without the leading v
@@ -11,7 +12,7 @@
 set -euo pipefail
 
 ROOTDIR="${ROOTDIR:-$PWD}"
-: "${TARGET:?set TARGET}" "${CMAKE_VERSION:?set CMAKE_VERSION}" "${NINJA_VERSION:?set NINJA_VERSION}"
+: "${PLATFORM:?set PLATFORM}" "${TARGET:?set TARGET}" "${CMAKE_VERSION:?set CMAKE_VERSION}" "${NINJA_VERSION:?set NINJA_VERSION}"
 ARCH="${TARGET%%-*}"
 EXTRAS_DIR="$ROOTDIR/extras"
 BUILD_DIR="$ROOTDIR/build"
@@ -20,11 +21,12 @@ cd "$ROOTDIR"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
-# Per-platform toolchain + flags. EXTRA_CMAKE carries any platform-specific -D
+# Per-platform toolchain + flags, dispatched on PLATFORM (not the triple) so the
+# toolchain is chosen explicitly. EXTRA_CMAKE carries any platform-specific -D
 # flags (e.g. macOS sysroot/arch) appended to every configure.
 EXTRA_CMAKE=()
-case "$TARGET" in
-  *-w64-mingw32)
+case "$PLATFORM" in
+  windows)
     TC=/opt/llvm-mingw
     ZIG_CC="$TC/bin/${TARGET}-clang"; ZIG_CXX="$TC/bin/${TARGET}-clang++"
     ZIG_LD="$TC/bin/${TARGET}-ld"; ZIG_AR="$TC/bin/${TARGET}-ar"
@@ -40,7 +42,7 @@ case "$TARGET" in
     export RC="$TC/bin/${TARGET}-windres"; export WINDRES="$RC"
     EXTRA_CMAKE=(-DCMAKE_RC_COMPILER="$RC")
     ;;
-  *-linux-android*)
+  android)
     # Android (bionic) via the official NDK clang, so cmake/ninja run on-device
     # (e.g. Termux). SYSTEM_NAME stays Linux so CMake uses the clang we point at
     # rather than taking over with its own NDK toolchain machinery.
@@ -64,7 +66,7 @@ case "$TARGET" in
     ZIG_C_FLAGS="-I$ROOTDIR/patches/cmake"; ZIG_CXX_FLAGS="$ZIG_C_FLAGS"
     ZIG_LINKER_FLAGS="-static-libstdc++"
     ;;
-  *-apple-darwin*)
+  macos)
     # macOS via osxcross (cctools-port + clang wrappers carrying the SDK sysroot);
     # zig segfaults building Darwin binaries.
     TC=/opt/osxcross
@@ -97,18 +99,15 @@ case "$TARGET" in
       export PATH="$BUILD_DIR/.macos-shims:$PATH"
     fi
     ;;
-  *)
+  linux)
+    # Linux (musl/gnu) via zig-as-llvm. SYSTEM_NAME=Linux.
     TC=/opt/zig-as-llvm
     [ -d "$ROOTDIR/patches/zig" ] && cp -R "$ROOTDIR/patches/zig/." /opt/zig/ || true
     export ZIG_TARGET="$TARGET"
     ZIG_CC="$TC/bin/cc"; ZIG_CXX="$TC/bin/c++"; ZIG_LD="$TC/bin/ld"
     ZIG_OBJCOPY="$TC/bin/objcopy"; ZIG_AR="$TC/bin/ar"; ZIG_RANLIB="$TC/bin/ranlib"; ZIG_STRIP="$TC/bin/strip"
-    case "$TARGET" in
-      *-freebsd-*) TARGET_OS=FreeBSD ;;
-      *-netbsd-*)  TARGET_OS=NetBSD ;;
-      *-openbsd-*) TARGET_OS=OpenBSD ;;
-      *)           TARGET_OS=Linux ;;
-    esac
+    TARGET_OS=Linux
+    # musl links fully static; glibc links static libstdc++/libgcc only.
     case "$TARGET" in
       *musl*) ZIG_C_FLAGS="-static"; ZIG_LINKER_FLAGS="-static" ;;
       *gnu*)  ZIG_C_FLAGS="";        ZIG_LINKER_FLAGS="-static-libstdc++ -static-libgcc" ;;
@@ -116,6 +115,23 @@ case "$TARGET" in
     esac
     ZIG_CXX_FLAGS="$ZIG_C_FLAGS"
     ;;
+  bsd)
+    # BSD via zig-as-llvm (same wrappers as linux); SYSTEM_NAME from the triple's
+    # OS field so cmlibuv/cmake pick the right *BSD code paths.
+    TC=/opt/zig-as-llvm
+    [ -d "$ROOTDIR/patches/zig" ] && cp -R "$ROOTDIR/patches/zig/." /opt/zig/ || true
+    export ZIG_TARGET="$TARGET"
+    ZIG_CC="$TC/bin/cc"; ZIG_CXX="$TC/bin/c++"; ZIG_LD="$TC/bin/ld"
+    ZIG_OBJCOPY="$TC/bin/objcopy"; ZIG_AR="$TC/bin/ar"; ZIG_RANLIB="$TC/bin/ranlib"; ZIG_STRIP="$TC/bin/strip"
+    case "$(echo "$TARGET" | cut -d- -f2)" in
+      freebsd) TARGET_OS=FreeBSD ;;
+      netbsd)  TARGET_OS=NetBSD ;;
+      openbsd) TARGET_OS=OpenBSD ;;
+      *)       TARGET_OS=Generic ;;
+    esac
+    ZIG_C_FLAGS=""; ZIG_CXX_FLAGS=""; ZIG_LINKER_FLAGS=""
+    ;;
+  *) echo "Unknown/unsupported PLATFORM='$PLATFORM'" >&2; exit 1 ;;
 esac
 
 if [ -d "$INSTALL_DIR/$CMAKE_VERSION-$TARGET" ]; then
@@ -200,8 +216,8 @@ cp "$ROOTDIR/patches/cmake/cmCurl.cxx" "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmC
 sed -i 's/add_compile_definitions(_FILE_OFFSET_BITS=64 _TIME_BITS=64)/add_compile_definitions(_FILE_OFFSET_BITS=64)/' \
     "$ROOTDIR/cmake-$CMAKE_VERSION/CompileFlags.cmake" || true
 
-case "$TARGET" in
-  *-linux-android*)
+case "$PLATFORM" in
+  android)
     # pthread_setaffinity_np is bionic API 36+; gate off cmlibuv's affinity block
     # (3 __linux__||__FreeBSD__ guards: its decls, use, and cpumask entry).
     sed -i 's/#if defined(__linux__) || defined(__FreeBSD__)/#if (defined(__linux__) || defined(__FreeBSD__)) \&\& !defined(__ANDROID__)/' \
@@ -215,13 +231,15 @@ case "$TARGET" in
     sed -i 's#src/unix/epoll.c#src/unix/pthread-fixes.c\n    src/unix/epoll.c#' \
         "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/CMakeLists.txt" || true
     ;;
-  *-netbsd-*)
-    # zig's NetBSD sysroot ships <kvm.h> but no libkvm; stub the one consumer
-    # (uv_resident_set_memory) and drop the -lkvm link so cmake links.
-    perl -0pi -e 's/int uv_resident_set_memory\(size_t\* rss\) \{.*?\n\}/int uv_resident_set_memory(size_t* rss) {\n  *rss = 0;\n  return UV_ENOSYS;\n}/s' \
-        "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/src/unix/netbsd.c" || true
-    sed -i '/^[[:space:]]*kvm[[:space:]]*$/d' \
-        "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/CMakeLists.txt" || true
+  bsd)
+    # NetBSD only: zig's NetBSD sysroot ships <kvm.h> but no libkvm; stub the one
+    # consumer (uv_resident_set_memory) and drop the -lkvm link so cmake links.
+    if [ "$(echo "$TARGET" | cut -d- -f2)" = netbsd ]; then
+      perl -0pi -e 's/int uv_resident_set_memory\(size_t\* rss\) \{.*?\n\}/int uv_resident_set_memory(size_t* rss) {\n  *rss = 0;\n  return UV_ENOSYS;\n}/s' \
+          "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/src/unix/netbsd.c" || true
+      sed -i '/^[[:space:]]*kvm[[:space:]]*$/d' \
+          "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/CMakeLists.txt" || true
+    fi
     ;;
 esac
 clone_repo "https://github.com/ninja-build/ninja.git" "v$NINJA_VERSION" "$ROOTDIR/ninja-$NINJA_VERSION"
@@ -232,8 +250,8 @@ build_project CMake "$ROOTDIR/cmake-$CMAKE_VERSION" \
 # ninja needs posix_spawn (bionic API 28+, we target 25): force-include the shim.
 # Ninja only — for cmake it poisons CHECK_FUNCTION_EXISTS (its `char fchdir();`
 # clashes with the real decl -> HAVE_FCHDIR unset -> libarchive #errors out).
-case "$TARGET" in
-  *-linux-android*)
+case "$PLATFORM" in
+  android)
     ZIG_C_FLAGS="$ZIG_C_FLAGS -include $ROOTDIR/patches/cmake/android_compat.h"
     ZIG_CXX_FLAGS="$ZIG_C_FLAGS" ;;
 esac
