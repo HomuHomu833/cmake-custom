@@ -67,7 +67,10 @@ case "$TARGET" in
       x86_64)  OPENSSL_TARGET="linux-x86_64" ;;
       riscv64) OPENSSL_TARGET="linux64-riscv64" ;;
       *)       OPENSSL_TARGET="linux-generic64" ;;
-    esac ;;
+    esac
+    # 32-bit x86 OpenSSL asm uses non-PIC absolute relocs (R_386_32); they fail
+    # linking into Android's mandatory-PIE executables, so build it in C.
+    [ "$ARCH" = i686 ] && SSL_EXTRA="$SSL_EXTRA no-asm" ;;
   *-apple-darwin*)
     TC=/opt/osxcross; export PATH="$TC/bin:$PATH"
     export MACOSX_DEPLOYMENT_TARGET=11.0
