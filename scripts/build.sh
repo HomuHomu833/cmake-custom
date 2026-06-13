@@ -55,11 +55,10 @@ case "$TARGET" in
     ZIG_LD="$TC/bin/ld"; ZIG_AR="$TC/bin/llvm-ar"; ZIG_RANLIB="$TC/bin/llvm-ranlib"
     ZIG_STRIP="$TC/bin/llvm-strip"; ZIG_OBJCOPY="$TC/bin/llvm-objcopy"
     TARGET_OS=Linux
-    ZIG_C_FLAGS=""; ZIG_CXX_FLAGS=""
+    # CMake's libarchive #includes "android_lf.h" under __ANDROID__; build.sh drops
+    # a stub next to archive.h, and patches/cmake is on the include path for it.
+    ZIG_C_FLAGS="-I$ROOTDIR/patches/cmake"; ZIG_CXX_FLAGS="$ZIG_C_FLAGS"
     ZIG_LINKER_FLAGS="-static-libstdc++"
-    # bionic satisfies both POSIX and glibc strerror_r try-compiles; force POSIX so
-    # cmcurl doesn't need the cross-impossible disambiguating try_run.
-    EXTRA_CMAKE=(-DHAVE_GLIBC_STRERROR_R=0)
     ;;
   *-apple-darwin*)
     # macOS via osxcross (cctools-port + clang wrappers carrying the SDK sysroot);
@@ -85,9 +84,7 @@ case "$TARGET" in
     TARGET_OS=Darwin
     ZIG_C_FLAGS=""; ZIG_CXX_FLAGS=""; ZIG_LINKER_FLAGS=""
     SDKROOT="$(ls -d "$TC/SDK/MacOSX"*.sdk 2>/dev/null | head -n1 || true)"
-    # darwin strerror_r is POSIX; force it (same cross try_run issue as bionic).
-    EXTRA_CMAKE=(-DCMAKE_OSX_ARCHITECTURES="$OSX_ARCH" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
-                 -DHAVE_GLIBC_STRERROR_R=0)
+    EXTRA_CMAKE=(-DCMAKE_OSX_ARCHITECTURES="$OSX_ARCH" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0)
     [ -n "$SDKROOT" ] && EXTRA_CMAKE+=(-DCMAKE_OSX_SYSROOT="$SDKROOT")
     # cctools libtool under the plain name, in case a step shells out to it.
     LIBTOOLBIN="$(ls "$TC/bin/${OSX_ARCH}-apple-darwin"*-libtool 2>/dev/null | head -n1 || true)"
@@ -148,6 +145,10 @@ build_project() {
         -DCMAKE_EXE_LINKER_FLAGS="$ZIG_LINKER_FLAGS"
         -DCMAKE_INSTALL_PREFIX="$install_dir"
         -DBUILD_TESTING=OFF
+        # glibc/bionic/darwin satisfy both POSIX and glibc strerror_r try-compiles;
+        # force POSIX so cmcurl skips the cross-impossible disambiguating try_run.
+        # (musl has only POSIX, so this is a no-op there.)
+        -DHAVE_GLIBC_STRERROR_R=0
         -G Ninja
     )
     if [ "$name" = CMake ]; then

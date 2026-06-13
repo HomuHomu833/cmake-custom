@@ -29,6 +29,9 @@ case "$TARGET" in
     TC=/opt/llvm-mingw
     CC="$TC/bin/${TARGET}-clang"; CXX="$TC/bin/${TARGET}-clang++"
     AR="$TC/bin/${TARGET}-ar"; RANLIB="$TC/bin/${TARGET}-ranlib"
+    # OpenSSL's mingw build invokes the resource compiler as bare `windres`;
+    # llvm-mingw only ships the target-prefixed name. Point RC/WINDRES at it.
+    export RC="$TC/bin/${TARGET}-windres"; export WINDRES="$RC"
     APPLY_PATCHES=0
     case "$TARGET" in
       x86_64-w64-mingw32)  OPENSSL_TARGET="mingw64" ;;
