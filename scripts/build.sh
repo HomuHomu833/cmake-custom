@@ -55,7 +55,7 @@ case "$TARGET" in
     # rather than taking over with its own NDK toolchain machinery.
     : "${NDK_VERSION:?set NDK_VERSION for the android build}"
     NDK_REVISION="${NDK_REVISION:-}"
-    API="${ANDROID_PLATFORM:-24}"; [ "$TARGET" = riscv64-linux-android ] && API=35
+    API="${ANDROID_PLATFORM:-25}"; [ "$TARGET" = riscv64-linux-android ] && API=35
     NDK_NAME="android-ndk-r${NDK_VERSION}${NDK_REVISION}"
     NDK_DIR="$ROOTDIR/$NDK_NAME"
     if [ ! -d "$NDK_DIR" ]; then
@@ -69,9 +69,11 @@ case "$TARGET" in
     ZIG_LD="$TC/bin/ld"; ZIG_AR="$TC/bin/llvm-ar"; ZIG_RANLIB="$TC/bin/llvm-ranlib"
     ZIG_STRIP="$TC/bin/llvm-strip"; ZIG_OBJCOPY="$TC/bin/llvm-objcopy"
     TARGET_OS=Linux
-    # CMake's libarchive #includes "android_lf.h" under __ANDROID__; build.sh drops
-    # a stub next to archive.h, and patches/cmake is on the include path for it.
-    ZIG_C_FLAGS="-I$ROOTDIR/patches/cmake"; ZIG_CXX_FLAGS="$ZIG_C_FLAGS"
+    # -I patches/cmake: resolves libarchive's "android_lf.h" (a stub) under __ANDROID__.
+    # -include android_compat.h: supplies posix_spawn (ninja uses it; bionic gates it
+    #   to API 28+ and we target 25). Inert in TUs that don't reference it.
+    ZIG_C_FLAGS="-I$ROOTDIR/patches/cmake -include $ROOTDIR/patches/cmake/android_compat.h"
+    ZIG_CXX_FLAGS="$ZIG_C_FLAGS"
     ZIG_LINKER_FLAGS="-static-libstdc++"
     ;;
   *-apple-darwin*)

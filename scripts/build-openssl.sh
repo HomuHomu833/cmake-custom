@@ -49,7 +49,7 @@ case "$TARGET" in
   *-linux-android*)
     : "${NDK_VERSION:?set NDK_VERSION for the android build}"
     NDK_REVISION="${NDK_REVISION:-}"
-    API="${ANDROID_PLATFORM:-24}"; [ "$TARGET" = riscv64-linux-android ] && API=35
+    API="${ANDROID_PLATFORM:-25}"; [ "$TARGET" = riscv64-linux-android ] && API=35
     NDK_NAME="android-ndk-r${NDK_VERSION}${NDK_REVISION}"; NDK_DIR="$ROOTDIR/$NDK_NAME"
     if [ ! -d "$NDK_DIR" ]; then
       log "Downloading official NDK ($NDK_NAME)"
