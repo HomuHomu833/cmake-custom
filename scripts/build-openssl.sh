@@ -125,6 +125,17 @@ case "$TARGET" in
     esac ;;
 esac
 
+# OpenSSL 3.x guards its 64-bit RCU/refcount atomics with __atomic_is_lock_free;
+# on 32-bit that's a libatomic runtime call the zig sysroots don't provide.
+# BROKEN_CLANG_ATOMICS routes those ops through OpenSSL's pthread-mutex fallback.
+# (Scoped to zig: NDK/llvm-mingw 32-bit targets link libatomic themselves.)
+if [ "$TC" = /opt/zig-as-llvm ]; then
+  case "$ARCH" in
+    x86|arm|armhf|armeb|riscv32|powerpc|mips|mipsel|hexagon)
+      SSL_EXTRA="$SSL_EXTRA -DBROKEN_CLANG_ATOMICS" ;;
+  esac
+fi
+
 log "Building OpenSSL ($TARGET -> $OPENSSL_TARGET)"
 rm -rf "$EXTRAS_DIR" "$ROOTDIR/openssl"
 fetch --dir=/tmp -o openssl.tar.gz https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz
