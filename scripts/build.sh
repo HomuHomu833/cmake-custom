@@ -70,10 +70,8 @@ case "$TARGET" in
     ZIG_STRIP="$TC/bin/llvm-strip"; ZIG_OBJCOPY="$TC/bin/llvm-objcopy"
     TARGET_OS=Linux
     # -I patches/cmake: resolves libarchive's "android_lf.h" (a stub) under __ANDROID__.
-    # -include android_compat.h: supplies posix_spawn (ninja uses it; bionic gates it
-    #   to API 28+ and we target 25). Inert in TUs that don't reference it.
-    ZIG_C_FLAGS="-I$ROOTDIR/patches/cmake -include $ROOTDIR/patches/cmake/android_compat.h"
-    ZIG_CXX_FLAGS="$ZIG_C_FLAGS"
+    # (The posix_spawn shim is force-included for the ninja build only; see below.)
+    ZIG_C_FLAGS="-I$ROOTDIR/patches/cmake"; ZIG_CXX_FLAGS="$ZIG_C_FLAGS"
     ZIG_LINKER_FLAGS="-static-libstdc++"
     ;;
   *-apple-darwin*)
@@ -245,6 +243,17 @@ clone_repo "https://github.com/ninja-build/ninja.git" "v$NINJA_VERSION" "$ROOTDI
 
 build_project CMake "$ROOTDIR/cmake-$CMAKE_VERSION" \
     "$BUILD_DIR/cmake-$CMAKE_VERSION-$TARGET" "$BUILD_DIR/binary-cmake-$CMAKE_VERSION-$TARGET"
+
+# ninja 1.12 needs posix_spawn (bionic gates it to API 28+, we target 25); supply
+# it via the force-included shim. Scope this to the ninja build ONLY: doing it for
+# cmake would pull system headers into its CHECK_FUNCTION_EXISTS probes and break
+# them (its bogus `char fchdir();` prototype clashes with the real one -> the probe
+# fails -> HAVE_FCHDIR unset -> libarchive's "#error fchdir function required").
+case "$TARGET" in
+  *-linux-android*)
+    ZIG_C_FLAGS="$ZIG_C_FLAGS -include $ROOTDIR/patches/cmake/android_compat.h"
+    ZIG_CXX_FLAGS="$ZIG_C_FLAGS" ;;
+esac
 build_project Ninja "$ROOTDIR/ninja-$NINJA_VERSION" \
     "$BUILD_DIR/ninja-$CMAKE_VERSION-$TARGET" "$BUILD_DIR/binary-ninja-$CMAKE_VERSION-$TARGET"
 
