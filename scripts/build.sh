@@ -66,12 +66,7 @@ case "$TARGET" in
     # CMake's libarchive #includes "android_lf.h" under __ANDROID__; build.sh drops
     # a stub next to archive.h, and patches/cmake is on the include path for it.
     ZIG_C_FLAGS="-I$ROOTDIR/patches/cmake"; ZIG_CXX_FLAGS="$ZIG_C_FLAGS"
-    # bionic folded librt into libc, but cmake's link still appends -lrt; satisfy
-    # it with an empty librt.a on the search path.
-    STUBDIR="$BUILD_DIR/.android-stubs"; mkdir -p "$STUBDIR"
-    : | "$ZIG_CC" -x c -c - -o "$STUBDIR/empty.o"
-    "$ZIG_AR" rcs "$STUBDIR/librt.a" "$STUBDIR/empty.o"
-    ZIG_LINKER_FLAGS="-static-libstdc++ -L$STUBDIR"
+    ZIG_LINKER_FLAGS="-static-libstdc++"
     ;;
   *-apple-darwin*)
     # macOS via osxcross (cctools-port + clang wrappers carrying the SDK sysroot);
@@ -218,6 +213,10 @@ case "$TARGET" in
     # cpumask entry point, which then returns UV_ENOTSUP).
     sed -i 's/#if defined(__linux__) || defined(__FreeBSD__)/#if (defined(__linux__) || defined(__FreeBSD__)) \&\& !defined(__ANDROID__)/' \
         "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/src/unix/process.c" || true
+    # We build android with CMAKE_SYSTEM_NAME=Linux, so cmlibuv links the Linux
+    # libs (dl rt). bionic folded librt into libc and ships no librt, so drop rt.
+    sed -i 's/list(APPEND uv_libraries dl rt)/list(APPEND uv_libraries dl)/' \
+        "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/CMakeLists.txt" || true
     ;;
   *-netbsd-*)
     # zig's NetBSD sysroot ships <kvm.h> but no libkvm; stub the one consumer
