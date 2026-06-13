@@ -18,16 +18,11 @@ cd "$ROOTDIR"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
-# OpenSSL 1.1.1 has no ARM64-Windows Configure target; that build uses cmcurl's
-# native Schannel backend instead (build.sh sets CMAKE_USE_OPENSSL=OFF).
-if [ "$TARGET" = aarch64-w64-mingw32 ]; then
-  log "Skipping OpenSSL for $TARGET (no 1.1.1 arm64-mingw target; curl uses Schannel)"
-  exit 0
-fi
+OPENSSL_VERSION="${OPENSSL_VERSION:-3.6.3}"
 
 # --- per-platform compiler + OpenSSL Configure target -----------------------
-# APPLY_PATCHES gates the time64 + android source patches; off for mingw/macos
-# (android.patch adds POSIX dirent code mingw lacks; neither patch fits darwin).
+# APPLY_PATCHES gates the android source patch; off for mingw/macos (the cert
+# bundle is a bionic on-device concern and pulls POSIX dirent code those lack).
 # CC/CXX/AR/RANLIB select the toolchain — AR matters for macOS (ld64 rejects a
 # GNU-format archive, so OpenSSL must use the cctools ar).
 APPLY_PATCHES=1
@@ -43,7 +38,7 @@ case "$TARGET" in
     APPLY_PATCHES=0
     case "$TARGET" in
       x86_64-w64-mingw32)  OPENSSL_TARGET="mingw64" ;;
-      aarch64-w64-mingw32) OPENSSL_TARGET="mingw-armv8" ;;
+      aarch64-w64-mingw32) OPENSSL_TARGET="mingwarm64" ;;   # OpenSSL 3.6+
       i686-w64-mingw32)    OPENSSL_TARGET="mingw" ;;
     esac ;;
   *-linux-android*)
@@ -133,19 +128,22 @@ esac
 
 log "Building OpenSSL ($TARGET -> $OPENSSL_TARGET)"
 rm -rf "$EXTRAS_DIR" "$ROOTDIR/openssl"
-fetch --dir=/tmp -o openssl.tar.gz https://github.com/openssl/openssl/releases/download/OpenSSL_1_1_1w/openssl-1.1.1w.tar.gz
+fetch --dir=/tmp -o openssl.tar.gz https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz
 gzip -d < /tmp/openssl.tar.gz | tar -x -C "$ROOTDIR"
 rm -f /tmp/openssl.tar.gz
-mv "$ROOTDIR/openssl-1.1.1w" "$ROOTDIR/openssl"
+mv "$ROOTDIR/openssl-$OPENSSL_VERSION" "$ROOTDIR/openssl"
 cd "$ROOTDIR/openssl"
 sed -i '/^\s*shared_cflag\s*=>\s*"-fPIC",\s*$/d' Configurations/10-main.conf
-if [ "$APPLY_PATCHES" = 1 ]; then
-  patch -p1 < "$ROOTDIR/patches/openssl/fix-io_getevents-time64.patch"
-  patch -p1 < "$ROOTDIR/patches/openssl/android.patch"
-fi
+# android.patch makes X509_get_default_cert_file build a CA bundle from
+# /system/etc/security/cacerts on-device (runtime-gated by $ANDROID_DATA, inert
+# elsewhere). no-afalgeng below replaces the old afalg time64 source patch.
+[ "$APPLY_PATCHES" = 1 ] && patch -p1 < "$ROOTDIR/patches/openssl/android.patch"
+# --libdir=lib: keep a predictable extras/lib (3.x defaults some targets to lib64).
+# no-afalgeng: skip the Linux afalg engine (its 32-bit time64 syscall path is the
+#   only reason we used to patch OpenSSL; unneeded for cmcurl's TLS).
 CC="$CC" CXX="$CXX" AR="$AR" RANLIB="$RANLIB" \
-  ./Configure "$OPENSSL_TARGET" no-shared no-async no-tests no-dso $SSL_EXTRA \
-    --prefix="$EXTRAS_DIR" --openssldir="/etc/ssl"
+  ./Configure "$OPENSSL_TARGET" no-shared no-async no-tests no-dso no-afalgeng $SSL_EXTRA \
+    --prefix="$EXTRAS_DIR" --openssldir="/etc/ssl" --libdir=lib
 make -j"$(nproc)"
 make install_sw
 log "Done -> $EXTRAS_DIR"

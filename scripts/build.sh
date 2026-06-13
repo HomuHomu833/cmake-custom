@@ -23,9 +23,6 @@ log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 # Per-platform toolchain + flags. EXTRA_CMAKE carries any platform-specific -D
 # flags (e.g. macOS sysroot/arch) appended to every configure.
 EXTRA_CMAKE=()
-# OpenSSL backs cmcurl on every target except where it's unavailable; there
-# cmcurl falls back to a native TLS backend (Schannel on Windows).
-USE_OPENSSL=ON
 case "$TARGET" in
   *-w64-mingw32)
     TC=/opt/llvm-mingw
@@ -45,9 +42,6 @@ case "$TARGET" in
     # bare `windres`, which llvm-mingw only ships target-prefixed. Point it there.
     export RC="$TC/bin/${TARGET}-windres"; export WINDRES="$RC"
     EXTRA_CMAKE=(-DCMAKE_RC_COMPILER="$RC")
-    # OpenSSL 1.1.1 has no ARM64-Windows target, so cmcurl uses Schannel there
-    # (CMAKE_USE_OPENSSL=OFF + WIN32 -> CURL_USE_SCHANNEL); build-openssl skips it.
-    [ "$TARGET" = aarch64-w64-mingw32 ] && USE_OPENSSL=OFF
     ;;
   *-linux-android*)
     # Android (bionic) via the official NDK clang, so cmake/ninja run on-device
@@ -173,7 +167,7 @@ build_project() {
             -DHAVE_POLL_FINE_EXITCODE=1
             -DKWSYS_LFS_WORKS=1 -DKWSYS_LFS_WORKS__TRYRUN_OUTPUT=""
             -DHAVE_FSETXATTR_5=1 -DHAVE_FSETXATTR_5__TRYRUN_OUTPUT=""
-            -DCMAKE_USE_OPENSSL="$USE_OPENSSL"
+            -DCMAKE_USE_OPENSSL=ON
             -DCMAKE_USE_SYSTEM_CURL=OFF -DCMAKE_USE_SYSTEM_ZLIB=OFF
             -DCMAKE_USE_SYSTEM_KWIML=OFF -DCMAKE_USE_SYSTEM_LIBRHASH=OFF
             -DCMAKE_USE_SYSTEM_EXPAT=OFF -DCMAKE_USE_SYSTEM_BZIP2=OFF
