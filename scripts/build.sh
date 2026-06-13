@@ -33,7 +33,11 @@ case "$TARGET" in
     TARGET_OS=Windows
     ZIG_C_FLAGS=""
     ZIG_CXX_FLAGS=""
-    ZIG_LINKER_FLAGS="-static-libstdc++ -static-libgcc -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic"
+    # Static libwinpthread, but NOT --whole-archive: that force-pulls winpthread's
+    # own version.o (a VERSIONINFO resource) which then collides with cmake's
+    # CMakeVersion.rc.res ("duplicate resource"). On-demand linking is enough since
+    # libuv uses Win32 threads and only libc++ pulls a few pthread symbols.
+    ZIG_LINKER_FLAGS="-static-libstdc++ -static-libgcc -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic"
     # CMake compiles its own .rc resources; it defaults CMAKE_RC_COMPILER to the
     # bare `windres`, which llvm-mingw only ships target-prefixed. Point it there.
     export RC="$TC/bin/${TARGET}-windres"; export WINDRES="$RC"
@@ -62,7 +66,12 @@ case "$TARGET" in
     # CMake's libarchive #includes "android_lf.h" under __ANDROID__; build.sh drops
     # a stub next to archive.h, and patches/cmake is on the include path for it.
     ZIG_C_FLAGS="-I$ROOTDIR/patches/cmake"; ZIG_CXX_FLAGS="$ZIG_C_FLAGS"
-    ZIG_LINKER_FLAGS="-static-libstdc++"
+    # bionic folded librt into libc, but cmake's link still appends -lrt; satisfy
+    # it with an empty librt.a on the search path.
+    STUBDIR="$BUILD_DIR/.android-stubs"; mkdir -p "$STUBDIR"
+    : | "$ZIG_CC" -x c -c - -o "$STUBDIR/empty.o"
+    "$ZIG_AR" rcs "$STUBDIR/librt.a" "$STUBDIR/empty.o"
+    ZIG_LINKER_FLAGS="-static-libstdc++ -L$STUBDIR"
     ;;
   *-apple-darwin*)
     # macOS via osxcross (cctools-port + clang wrappers carrying the SDK sysroot);
