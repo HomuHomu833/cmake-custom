@@ -24,8 +24,16 @@ jobs:
       platform: linux
       cmake_version: ${{ inputs.cmake_version }}
       ninja_version: ${{ inputs.ninja_version }}
-      # mips* are dropped: 64-bit MIPS can't build OpenSSL and CMake's tryruns
-      # are unreliable there.
+      # powerpc64le-linux-gnu, x86_64-linux-gnux32,
+      # mips-linux-gnueabi, mips-linux-gnueabihf, mips-linux-musleabi,
+      # mips-linux-musleabihf, mips64-linux-gnuabin32, mips64-linux-gnuabi64,
+      # mips64-linux-muslabin32, mips64-linux-muslabi64,
+      # mips64el-linux-gnuabin32, mips64el-linux-gnuabi64,
+      # mips64el-linux-muslabin32, mips64el-linux-muslabi64,
+      # mipsel-linux-gnueabi, mipsel-linux-gnueabihf,
+      # mipsel-linux-musleabi, mipsel-linux-musleabihf,
+      # thumb-linux-musleabi, thumb-linux-musleabihf,
+      # thumbeb-linux-musleabi, thumbeb-linux-musleabihf
       targets: >-
         ["aarch64-linux-musl", "aarch64-linux-gnu", "aarch64_be-linux-gnu",
          "aarch64_be-linux-musl", "arm-linux-gnueabi", "arm-linux-gnueabihf",

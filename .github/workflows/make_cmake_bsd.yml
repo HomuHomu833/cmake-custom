@@ -24,6 +24,8 @@ jobs:
       platform: bsd
       cmake_version: ${{ inputs.cmake_version }}
       ninja_version: ${{ inputs.ninja_version }}
+      # riscv32-netbsd-none, powerpc-freebsd-eabihf, sparc64-openbsd-none, sparc-netbsd-none, sparc64-netbsd-none, sparc64-openbsd-none
+      # mips-netbsd-eabi, mips-netbsd-eabihf, mipsel-netbsd-eabi, mipsel-netbsd-eabihf, mips64el-openbsd-none, mips64-openbsd-none
       targets: >-
         ["aarch64-freebsd-none", "aarch64-netbsd-none", "aarch64-openbsd-none",
          "aarch64_be-netbsd-none", "arm-freebsd-eabihf", "arm-netbsd-eabi",

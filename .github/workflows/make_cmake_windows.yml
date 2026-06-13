@@ -24,4 +24,5 @@ jobs:
       platform: windows
       cmake_version: ${{ inputs.cmake_version }}
       ninja_version: ${{ inputs.ninja_version }}
+      # armv7-w64-mingw32, arm64ec-w64-mingw32
       targets: '["x86_64-w64-mingw32", "aarch64-w64-mingw32", "i686-w64-mingw32"]'
