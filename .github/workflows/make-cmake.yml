@@ -1,0 +1,95 @@
+name: Build CMake (reusable)
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: "linux | bsd | windows | macos | android"
+        required: true
+        type: string
+      targets:
+        description: "JSON array of target triples"
+        required: true
+        type: string
+      cmake_version:
+        description: "CMake version (release tag, no leading v)"
+        required: true
+        type: string
+      ninja_version:
+        description: "Ninja version (release tag, no leading v)"
+        required: true
+        type: string
+      ndk_version:
+        description: "Official NDK version for the android clang (android only)"
+        required: false
+        type: string
+        default: ""
+      ndk_revision:
+        description: "Official NDK revision letter (android only)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(inputs.targets) }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Skip if already released
+        id: check
+        run: |
+          url="https://github.com/${{ github.repository }}/releases/download/${{ inputs.cmake_version }}/cmake-${{ matrix.target }}.tar.xz"
+          if curl --head --fail --silent "$url" >/dev/null; then
+            echo "Artifact already exists, skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/cmake-builder:latest"
+          docker run --rm \
+            -v "$PWD:/work" -w /work --user "$(id -u):$(id -g)" \
+            -e HOME=/work \
+            -e PLATFORM='${{ inputs.platform }}' \
+            -e TARGET='${{ matrix.target }}' \
+            -e CMAKE_VERSION='${{ inputs.cmake_version }}' \
+            -e NINJA_VERSION='${{ inputs.ninja_version }}' \
+            -e NDK_VERSION='${{ inputs.ndk_version }}' \
+            -e NDK_REVISION='${{ inputs.ndk_revision }}' \
+            -e ROOTDIR=/work \
+            "$IMAGE" \
+            bash -c 'scripts/build-openssl.sh && scripts/build.sh'
+
+      - name: Compress
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          mv "install/${{ inputs.cmake_version }}-${{ matrix.target }}" "${{ inputs.cmake_version }}"
+          tar -cf - "${{ inputs.cmake_version }}" | xz -T0 -9e --lzma2=dict=256MiB > "cmake-${{ matrix.target }}.tar.xz"
+
+      - name: Release
+        if: steps.check.outputs.skip == 'false'
+        uses: ncipollo/release-action@v1.21.0
+        with:
+          tag: "${{ inputs.cmake_version }}"
+          artifacts: cmake-${{ matrix.target }}.tar.xz
+          allowUpdates: true
+          replacesArtifacts: true
+          body: ''

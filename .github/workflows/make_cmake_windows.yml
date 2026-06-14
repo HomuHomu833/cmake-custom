@@ -1,0 +1,28 @@
+name: Make CMake (Windows)
+run-name: Make CMake ${{ inputs.cmake_version }}
+on:
+  workflow_dispatch:
+    inputs:
+      cmake_version:
+        description: "CMake Version"
+        required: true
+        default: "4.1.2"
+      ninja_version:
+        description: "Ninja Version"
+        required: true
+        default: "1.12.1"
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  make:
+    uses: ./.github/workflows/make-cmake.yml
+    secrets: inherit
+    with:
+      platform: windows
+      cmake_version: ${{ inputs.cmake_version }}
+      ninja_version: ${{ inputs.ninja_version }}
+      # armv7-w64-mingw32, arm64ec-w64-mingw32
+      targets: '["x86_64-w64-mingw32", "aarch64-w64-mingw32", "i686-w64-mingw32"]'

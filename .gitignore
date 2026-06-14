@@ -1,6 +1,9 @@
-extras*
-build*
-install*
-cmake-*
-ninja-*
-zig-as-llvm
+# build artifacts / fetched sources — anchored to repo root so scripts/build*.sh
+# (and any nested paths) stay tracked.
+/extras
+/build
+/install
+/cmake-*
+/ninja-*
+/openssl
+/zig-as-llvm

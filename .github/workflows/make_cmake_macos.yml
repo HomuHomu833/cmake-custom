@@ -1,0 +1,30 @@
+name: Make CMake (macOS)
+run-name: Make CMake ${{ inputs.cmake_version }}
+on:
+  workflow_dispatch:
+    inputs:
+      cmake_version:
+        description: "CMake Version"
+        required: true
+        default: "4.1.2"
+      ninja_version:
+        description: "Ninja Version"
+        required: true
+        default: "1.12.1"
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  make:
+    uses: ./.github/workflows/make-cmake.yml
+    secrets: inherit
+    with:
+      platform: macos
+      cmake_version: ${{ inputs.cmake_version }}
+      ninja_version: ${{ inputs.ninja_version }}
+      # arm64e dropped: the osxcross SDK libs ship no arm64e slice, so the final
+      # link fails ("Undefined symbols for architecture arm64e").
+      targets: >-
+        ["x86_64-apple-darwin", "x86_64h-apple-darwin", "arm64-apple-darwin"]

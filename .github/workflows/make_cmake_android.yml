@@ -1,0 +1,40 @@
+name: Make CMake (Android)
+run-name: Make CMake ${{ inputs.cmake_version }}
+on:
+  workflow_dispatch:
+    inputs:
+      cmake_version:
+        description: "CMake Version"
+        required: true
+        default: "4.1.2"
+      ninja_version:
+        description: "Ninja Version"
+        required: true
+        default: "1.12.1"
+      ndk_version:
+        description: "Official NDK version for the android clang"
+        required: true
+        default: "27"
+      ndk_revision:
+        description: "Official NDK revision letter (optional)"
+        required: false
+        default: "c"
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  make:
+    uses: ./.github/workflows/make-cmake.yml
+    secrets: inherit
+    with:
+      platform: android
+      cmake_version: ${{ inputs.cmake_version }}
+      ninja_version: ${{ inputs.ninja_version }}
+      ndk_version: ${{ inputs.ndk_version }}
+      ndk_revision: ${{ inputs.ndk_revision }}
+      # riscv64-linux-android
+      targets: >-
+        ["aarch64-linux-android", "armv7a-linux-androideabi",
+         "i686-linux-android", "x86_64-linux-android"]
