@@ -53,7 +53,7 @@ jobs:
       - name: Skip if already released
         id: check
         run: |
-          url="https://github.com/${{ github.repository }}/releases/download/${{ inputs.cmake_version }}/cmake-${{ matrix.target }}.tar.xz"
+          url="https://github.com/${{ github.repository }}/releases/download/${{ inputs.cmake_version }}/cmake-${{ matrix.target }}.${{ inputs.platform == 'windows' && '7z' || 'tar.xz' }}"
           if curl --head --fail --silent "$url" >/dev/null; then
             echo "Artifact already exists, skipping."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -76,20 +76,14 @@ jobs:
             -e NDK_REVISION='${{ inputs.ndk_revision }}' \
             -e ROOTDIR=/work \
             "$IMAGE" \
-            bash -c 'scripts/build-openssl.sh && scripts/build.sh'
-
-      - name: Compress
-        if: steps.check.outputs.skip == 'false'
-        run: |
-          mv "install/${{ inputs.cmake_version }}-${{ matrix.target }}" "${{ inputs.cmake_version }}"
-          tar -cf - "${{ inputs.cmake_version }}" | xz -T0 -9e --lzma2=dict=256MiB > "cmake-${{ matrix.target }}.tar.xz"
+            bash -c 'scripts/build-openssl.sh && scripts/build.sh && scripts/make-cmake.sh'
 
       - name: Release
         if: steps.check.outputs.skip == 'false'
         uses: ncipollo/release-action@v1.21.0
         with:
           tag: "${{ inputs.cmake_version }}"
-          artifacts: cmake-${{ matrix.target }}.tar.xz
+          artifacts: cmake-${{ matrix.target }}.${{ inputs.platform == 'windows' && '7z' || 'tar.xz' }}
           allowUpdates: true
           replacesArtifacts: true
           body: ''
