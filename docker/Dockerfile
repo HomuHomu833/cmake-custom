@@ -11,7 +11,7 @@
 #     bash -c 'scripts/build-openssl.sh && scripts/build.sh'
 FROM ubuntu:24.04
 
-ARG ZIG_VERSION=0.17.0-dev.304+9787df942
+ARG ZIG_VERSION=0.17.0-dev.857+2b2b85c5f
 ARG LLVM_MINGW_VERSION=20260505
 ARG MACOS_SDK_VERSION=15.5
 ARG REPO_OWNER=HomuHomu833
