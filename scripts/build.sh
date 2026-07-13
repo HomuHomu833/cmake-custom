@@ -188,6 +188,10 @@ build_project() {
             -DCMAKE_USE_SYSTEM_LIBUV=OFF -DCMAKE_USE_SYSTEM_FORM=OFF
             -DCMAKE_USE_SYSTEM_CPPDAP=OFF
         )
+        case "$PLATFORM" in
+          android)
+            cmake_flags+=(-DHAVE_FUTIMESAT=OFF -DHAVE_LUTIMES=OFF) ;;
+        esac
     fi
     cmake -B "$build_dir" -S "$src_dir" "${cmake_flags[@]}" "${EXTRA_CMAKE[@]}"
     log "Building $name"
