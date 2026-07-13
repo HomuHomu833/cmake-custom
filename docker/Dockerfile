@@ -2,7 +2,7 @@
 # llvm-mingw (windows), and the host tools needed to cross-build CMake / Ninja /
 # OpenSSL, so CI only pulls.
 #
-# Build scripts are NOT copied in — they're bind-mounted from the checkout at run
+# Build scripts are NOT copied in they're bind-mounted from the checkout at run
 # time, so editing scripts/ needs no rebuild.
 #
 #   docker run --rm -v "$PWD:/work" -w /work \
@@ -70,7 +70,7 @@ RUN if [ ! -f /opt/.no-zig ]; then \
 ENV PATH="/opt/zig:${PATH}"
 
 # llvm-mingw (windows targets; only x86_64 / aarch64 linux hosts can run it).
-# NOT on PATH — build.sh calls it by absolute path.
+# NOT on PATH, build.sh calls it by absolute path.
 RUN arch="$(uname -m)"; \
     case "$arch" in \
         x86_64|aarch64) \

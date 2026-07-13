@@ -24,7 +24,7 @@ OPENSSL_VERSION="${OPENSSL_VERSION:-3.6.3}"
 # Dispatch on PLATFORM (not the triple) so the toolchain is chosen explicitly.
 # APPLY_PATCHES gates the android source patch; off for windows/macos (the cert
 # bundle is a bionic on-device concern and pulls POSIX dirent code those lack).
-# CC/CXX/AR/RANLIB select the toolchain — AR matters for macOS (ld64 rejects a
+# CC/CXX/AR/RANLIB select the toolchain, AR matters for macOS (ld64 rejects a
 # GNU-format archive, so OpenSSL must use the cctools ar).
 APPLY_PATCHES=1
 SSL_EXTRA=""

@@ -1,5 +1,3 @@
-# build artifacts / fetched sources — anchored to repo root so scripts/build*.sh
-# (and any nested paths) stay tracked.
 /extras
 /build
 /install

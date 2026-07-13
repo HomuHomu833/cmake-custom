@@ -1,5 +1,5 @@
 /*
- * netbsd_mips_compat.c — supply the version-renamed libc symbols that zig's
+ * netbsd_mips_compat.c supply the version-renamed libc symbols that zig's
  * NetBSD abilist tags for the other arches but omits for mips.
  *
  * NetBSD's headers __RENAME() kevent() -> __kevent100 and dup3() -> __dup3100
