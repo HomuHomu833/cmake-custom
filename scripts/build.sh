@@ -239,6 +239,17 @@ case "$PLATFORM" in
           "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/src/unix/netbsd.c" || true
       sed -i '/^[[:space:]]*kvm[[:space:]]*$/d' \
           "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/CMakeLists.txt" || true
+      # mips-NetBSD: zig's abilist omits the version-renamed __kevent100/__dup3100
+      # (present for other arches), so cmlibuv's kqueue backend won't link.
+      # Compile a small ABI-matched shim and append it to every exe link.
+      case "$ARCH" in
+        mips*)
+          mkdir -p "$BUILD_DIR"
+          "$ZIG_CC" -Os -c "$ROOTDIR/patches/cmake/netbsd_mips_compat.c" \
+              -o "$BUILD_DIR/netbsd_mips_compat.o"
+          ZIG_LINKER_FLAGS="$ZIG_LINKER_FLAGS $BUILD_DIR/netbsd_mips_compat.o"
+          ;;
+      esac
     fi
     ;;
 esac
