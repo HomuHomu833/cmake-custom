@@ -193,7 +193,7 @@ int posix_spawnp(pid_t *pid, const char *file,
   int ret = ENOENT;
   for (dir = strtok_r(path_copy, ":", &last); dir; dir = strtok_r(NULL, ":", &last)) {
     size_t dlen = strlen(dir), flen = strlen(file);
-    char *full = malloc(dlen + 1 + flen + 1);
+    char *full = (char *)malloc(dlen + 1 + flen + 1);
     if (!full) { free(path_copy); return ENOMEM; }
     memcpy(full, dir, dlen);
     full[dlen] = '/';
