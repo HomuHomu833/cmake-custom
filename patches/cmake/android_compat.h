@@ -178,5 +178,33 @@ int posix_spawn(pid_t *pid, const char *path,
   return 0;
 }
 
+static inline __attribute__((__unused__))
+int posix_spawnp(pid_t *pid, const char *file,
+                 const posix_spawn_file_actions_t *fa,
+                 const posix_spawnattr_t *attr,
+                 char *const argv[], char *const envp[]) {
+  if (strchr(file, '/'))
+    return posix_spawn(pid, file, fa, attr, argv, envp);
+  const char *path = getenv("PATH");
+  if (!path) path = "/system/bin:/vendor/bin:/bin:/usr/bin";
+  char *path_copy = strdup(path);
+  if (!path_copy) return ENOMEM;
+  char *dir, *last = NULL;
+  int ret = ENOENT;
+  for (dir = strtok_r(path_copy, ":", &last); dir; dir = strtok_r(NULL, ":", &last)) {
+    size_t dlen = strlen(dir), flen = strlen(file);
+    char *full = malloc(dlen + 1 + flen + 1);
+    if (!full) { free(path_copy); return ENOMEM; }
+    memcpy(full, dir, dlen);
+    full[dlen] = '/';
+    memcpy(full + dlen + 1, file, flen + 1);
+    ret = posix_spawn(pid, full, fa, attr, argv, envp);
+    free(full);
+    if (ret == 0) break;
+  }
+  free(path_copy);
+  return ret;
+}
+
 #endif /* __ANDROID__ && API < 28 */
 #endif /* CMAKE_ANDROID_COMPAT_H */
