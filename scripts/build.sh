@@ -63,8 +63,8 @@ case "$PLATFORM" in
     ZIG_STRIP="$TC/bin/llvm-strip"; ZIG_OBJCOPY="$TC/bin/llvm-objcopy"
     TARGET_OS=Linux
     # -I patches/cmake: stub "android_lf.h" libarchive includes under __ANDROID__.
-    ZIG_C_FLAGS="-I$ROOTDIR/patches/cmake"; ZIG_CXX_FLAGS="$ZIG_C_FLAGS"
-    ZIG_LINKER_FLAGS="-static-libstdc++"
+    ZIG_C_FLAGS="-I$ROOTDIR/patches/cmake -static"; ZIG_CXX_FLAGS="$ZIG_C_FLAGS"
+    ZIG_LINKER_FLAGS="-static"
     ;;
   macos)
     # macOS via osxcross (cctools-port + clang wrappers carrying the SDK sysroot);
