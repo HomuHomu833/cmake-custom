@@ -66,6 +66,16 @@ case "$PLATFORM" in
     ZIG_C_FLAGS="-I$ROOTDIR/patches/cmake -include $ROOTDIR/patches/cmake/android_compat.h -static"
     ZIG_CXX_FLAGS="$ZIG_C_FLAGS"
     ZIG_LINKER_FLAGS="-static"
+
+    # arm/arm64 executables need an 8-word-aligned PT_TLS to clear bionic's TCB
+    # slots, or the loader aborts with "executable's TLS segment is underaligned".
+    # crtbegin only supplies that from API 29, so link our own copy into every
+    # tool. Preprocessor-guarded, hence built unconditionally.
+    log "Building bionic TLS alignment stub"
+    mkdir -p "$BUILD_DIR"
+    "$ZIG_CC" -c "$ROOTDIR/patches/cmake/bionic_tls_align.S" -o "$BUILD_DIR/bionic_tls_align.o"
+    ZIG_LINKER_FLAGS="$ZIG_LINKER_FLAGS $BUILD_DIR/bionic_tls_align.o"
+
     ;;
   macos)
     # macOS via osxcross (cctools-port + clang wrappers carrying the SDK sysroot);
