@@ -245,6 +245,19 @@ case "$PLATFORM" in
         "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/CMakeLists.txt" || true
     sed -i 's#src/unix/epoll.c#src/unix/pthread-fixes.c\n    src/unix/epoll.c#' \
         "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/CMakeLists.txt" || true
+    # When the *host* is Android, CMakeDetermineSystem.cmake defaults
+    # CMAKE_SYSTEM_VERSION by reading $PREFIX/include/android/api-level.h. PREFIX
+    # is a Termux convention, so under any other Android terminal (XeD-Editor,
+    # ...) it is unset, the path collapses to /include/android/api-level.h and
+    # the unguarded file(READ) errors out mid-configure. Derive the prefix from
+    # cmake's own install root as a fallback, and skip the read when the header
+    # still isn't found. Upstream still has this, as of master.
+    sed -i 's#set(_ANDROID_API_LEVEL_H $ENV{PREFIX}/include/android/api-level.h)#set(_ANDROID_PREFIX "$ENV{PREFIX}")\n        if(NOT _ANDROID_PREFIX)\n          get_filename_component(_ANDROID_PREFIX "${CMAKE_ROOT}/../.." ABSOLUTE)\n        endif()\n        set(_ANDROID_API_LEVEL_H "${_ANDROID_PREFIX}/include/android/api-level.h")#' \
+        "$ROOTDIR/cmake-$CMAKE_VERSION/Modules/CMakeDetermineSystem.cmake" || true
+    sed -i 's#file(READ ${_ANDROID_API_LEVEL_H} _ANDROID_API_LEVEL_H_CONTENT)#if(EXISTS "${_ANDROID_API_LEVEL_H}")\n          file(READ "${_ANDROID_API_LEVEL_H}" _ANDROID_API_LEVEL_H_CONTENT)\n        endif()#' \
+        "$ROOTDIR/cmake-$CMAKE_VERSION/Modules/CMakeDetermineSystem.cmake" || true
+    sed -i 's#unset(_ANDROID_API_LEVEL_H)#unset(_ANDROID_PREFIX)\n        unset(_ANDROID_API_LEVEL_H)#' \
+        "$ROOTDIR/cmake-$CMAKE_VERSION/Modules/CMakeDetermineSystem.cmake" || true
     ;;
   bsd)
     # NetBSD only: zig's NetBSD sysroot ships <kvm.h> but no libkvm; stub the one
