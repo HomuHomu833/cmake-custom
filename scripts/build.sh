@@ -66,6 +66,16 @@ case "$PLATFORM" in
     ZIG_C_FLAGS="-I$ROOTDIR/patches/cmake -include $ROOTDIR/patches/cmake/android_compat.h -static"
     ZIG_CXX_FLAGS="$ZIG_C_FLAGS"
     ZIG_LINKER_FLAGS="-static"
+
+    # arm/arm64 executables need an 8-word-aligned PT_TLS to clear bionic's TCB
+    # slots, or the loader aborts with "executable's TLS segment is underaligned".
+    # crtbegin only supplies that from API 29, so link our own copy into every
+    # tool. Preprocessor-guarded, hence built unconditionally.
+    log "Building bionic TLS alignment stub"
+    mkdir -p "$BUILD_DIR"
+    "$ZIG_CC" -c "$ROOTDIR/patches/cmake/bionic_tls_align.S" -o "$BUILD_DIR/bionic_tls_align.o"
+    ZIG_LINKER_FLAGS="$ZIG_LINKER_FLAGS $BUILD_DIR/bionic_tls_align.o"
+
     ;;
   macos)
     # macOS via osxcross (cctools-port + clang wrappers carrying the SDK sysroot);
@@ -235,6 +245,19 @@ case "$PLATFORM" in
         "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/CMakeLists.txt" || true
     sed -i 's#src/unix/epoll.c#src/unix/pthread-fixes.c\n    src/unix/epoll.c#' \
         "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/CMakeLists.txt" || true
+    # When the *host* is Android, CMakeDetermineSystem.cmake defaults
+    # CMAKE_SYSTEM_VERSION by reading $PREFIX/include/android/api-level.h. PREFIX
+    # is a Termux convention, so under any other Android terminal (XeD-Editor,
+    # ...) it is unset, the path collapses to /include/android/api-level.h and
+    # the unguarded file(READ) errors out mid-configure. Derive the prefix from
+    # cmake's own install root as a fallback, and skip the read when the header
+    # still isn't found. Upstream still has this, as of master.
+    sed -i 's#set(_ANDROID_API_LEVEL_H $ENV{PREFIX}/include/android/api-level.h)#set(_ANDROID_PREFIX "$ENV{PREFIX}")\n        if(NOT _ANDROID_PREFIX)\n          get_filename_component(_ANDROID_PREFIX "${CMAKE_ROOT}/../.." ABSOLUTE)\n        endif()\n        set(_ANDROID_API_LEVEL_H "${_ANDROID_PREFIX}/include/android/api-level.h")#' \
+        "$ROOTDIR/cmake-$CMAKE_VERSION/Modules/CMakeDetermineSystem.cmake" || true
+    sed -i 's#file(READ ${_ANDROID_API_LEVEL_H} _ANDROID_API_LEVEL_H_CONTENT)#if(EXISTS "${_ANDROID_API_LEVEL_H}")\n          file(READ "${_ANDROID_API_LEVEL_H}" _ANDROID_API_LEVEL_H_CONTENT)\n        endif()#' \
+        "$ROOTDIR/cmake-$CMAKE_VERSION/Modules/CMakeDetermineSystem.cmake" || true
+    sed -i 's#unset(_ANDROID_API_LEVEL_H)#unset(_ANDROID_PREFIX)\n        unset(_ANDROID_API_LEVEL_H)#' \
+        "$ROOTDIR/cmake-$CMAKE_VERSION/Modules/CMakeDetermineSystem.cmake" || true
     ;;
   bsd)
     # NetBSD only: zig's NetBSD sysroot ships <kvm.h> but no libkvm; stub the one
