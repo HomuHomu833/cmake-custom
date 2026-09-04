@@ -13,13 +13,6 @@ set -euo pipefail
 ROOTDIR="${ROOTDIR:-$PWD}"
 : "${PLATFORM:?set PLATFORM}" "${TARGET:?set TARGET}"
 ARCH="${TARGET%%-*}"
-
-# zig target for the compiler wrappers. powerpc64le-linux-gnu needs an explicit
-# glibc >= 2.32: clang gives it IEEE-128 long double, so zig's libc++ calls
-# glibc's __snprintfieee128 / __fprintfieee128 / __vfprintfieee128, added in
-# 2.32. Without a version zig picks an older glibc and the link fails.
-ZIG_TRIPLE="$TARGET"
-if [ "$TARGET" = powerpc64le-linux-gnu ]; then ZIG_TRIPLE="powerpc64le-linux-gnu.2.32"; fi
 EXTRAS_DIR="$ROOTDIR/extras"
 cd "$ROOTDIR"
 
@@ -100,7 +93,10 @@ case "$PLATFORM" in
     # zig (musl/gnu). Overlay the musl libc source fixes (lib is a+w).
     TC=/opt/zig-as-llvm
     [ -d "$ROOTDIR/patches/zig" ] && cp -R "$ROOTDIR/patches/zig/." /opt/zig/ || true
-    export ZIG_TARGET="$ZIG_TRIPLE"
+    export ZIG_TARGET="$TARGET"
+    # ppc64le glibc: clang's IEEE-128 long double makes libc++ call
+    # glibc's __*ieee128 printf entries, which arrived in 2.32.
+    case "$TARGET" in powerpc64le-*-gnu*) export ZIG_TARGET="$TARGET.2.32" ;; esac
     CC="$TC/bin/cc"; CXX="$TC/bin/c++"; AR="$TC/bin/ar"; RANLIB="$TC/bin/ranlib"
     case "$ARCH" in
       aarch64)         OPENSSL_TARGET="linux-aarch64" ;;
@@ -129,7 +125,10 @@ case "$PLATFORM" in
     # zig (same wrappers as linux), all BSD targets.
     TC=/opt/zig-as-llvm
     [ -d "$ROOTDIR/patches/zig" ] && cp -R "$ROOTDIR/patches/zig/." /opt/zig/ || true
-    export ZIG_TARGET="$ZIG_TRIPLE"
+    export ZIG_TARGET="$TARGET"
+    # ppc64le glibc: clang's IEEE-128 long double makes libc++ call
+    # glibc's __*ieee128 printf entries, which arrived in 2.32.
+    case "$TARGET" in powerpc64le-*-gnu*) export ZIG_TARGET="$TARGET.2.32" ;; esac
     CC="$TC/bin/cc"; CXX="$TC/bin/c++"; AR="$TC/bin/ar"; RANLIB="$TC/bin/ranlib"
     # The /dev/crypto engine needs <crypto/cryptodev.h>, absent from some BSD
     # zig sysroots (e.g. OpenBSD); cmake's curl doesn't need it.
