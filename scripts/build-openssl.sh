@@ -38,7 +38,7 @@ case "$PLATFORM" in
     APPLY_PATCHES=0
     case "$ARCH" in
       x86_64)  OPENSSL_TARGET="mingw64" ;;
-      aarch64) OPENSSL_TARGET="mingwarm64" ;;   # OpenSSL 3.6+
+      aarch64) OPENSSL_TARGET="mingwarm64" ;;
       i686)    OPENSSL_TARGET="mingw" ;;
       # No upstream config: supplied by patches/openssl/50-llvm-mingw.conf.
       armv7)   OPENSSL_TARGET="mingw-armv7" ;;
@@ -75,9 +75,7 @@ case "$PLATFORM" in
     export MACOSX_DEPLOYMENT_TARGET=11.0
     APPLY_PATCHES=0
     case "$ARCH" in
-      arm64e)          OSX_ARCH=arm64e ;;   # distinct PAC ABI, not arm64:
-                                            # an arm64 libcrypto will not link
-                                            # into an arm64e cmake.
+      arm64e)          OSX_ARCH=arm64e ;;
       arm64|aarch64)   OSX_ARCH=arm64 ;;
       x86_64h)         OSX_ARCH=x86_64h ;;
       *)               OSX_ARCH=x86_64 ;;
