@@ -217,7 +217,17 @@ build_project() {
             cmake_flags+=(-DHAVE_FCHDIR=ON -DHAVE_PIPE=ON -DHAVE_POSIX_SPAWNP=ON -DHAVE_FUTIMESAT=OFF -DHAVE_LUTIMES=OFF -DHAVE_NL_LANGINFO=OFF) ;;
         esac
     fi
-    cmake -B "$build_dir" -S "$src_dir" "${cmake_flags[@]}" "${EXTRA_CMAKE[@]}"
+    # cmake only prints "- no" when a feature probe fails, and treats any warning
+    # in the probe output as a failure too, so dump the logs that hold the real
+    # compiler/linker error before giving up.
+    if ! cmake -B "$build_dir" -S "$src_dir" "${cmake_flags[@]}" "${EXTRA_CMAKE[@]}"; then
+      for l in "$build_dir/CMakeFiles/CMakeError.log" "$build_dir/CMakeFiles/CMakeConfigureLog.yaml"; do
+        [ -f "$l" ] || continue
+        log "--- $l ---"
+        tail -n 200 "$l"
+      done
+      exit 1
+    fi
     log "Building $name"
     ninja -C "$build_dir" -j"$(nproc)"
     ninja -C "$build_dir" install
