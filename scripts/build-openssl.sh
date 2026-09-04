@@ -86,7 +86,10 @@ case "$PLATFORM" in
     CC="$TC/bin/${HOST}-clang"; CXX="$TC/bin/${HOST}-clang++"
     AR="$TC/bin/${HOST}-ar"; RANLIB="$TC/bin/${HOST}-ranlib"
     case "$ARCH" in
-      arm64|arm64e|aarch64) OPENSSL_TARGET="darwin64-arm64-cc" ;;
+      # darwin64-arm64 hardcodes -arch arm64, which would override the arm64e
+      # wrapper; 51-darwin-arm64e.conf supplies an -arch arm64e variant.
+      arm64e)               OPENSSL_TARGET="darwin64-arm64e" ;;
+      arm64|aarch64)        OPENSSL_TARGET="darwin64-arm64-cc" ;;
       *)                    OPENSSL_TARGET="darwin64-x86_64-cc" ;;
     esac ;;
   linux)
@@ -168,6 +171,7 @@ sed -i '/^\s*shared_cflag\s*=>\s*"-fPIC",\s*$/d' Configurations/10-main.conf
 # armv7/arm64ec windows have no upstream config; OpenSSL merges every
 # Configurations/*.conf, so dropping ours in defines those two targets.
 cp "$ROOTDIR/patches/openssl/50-llvm-mingw.conf" Configurations/
+cp "$ROOTDIR/patches/openssl/51-darwin-arm64e.conf" Configurations/
 # android.patch makes X509_get_default_cert_file build a CA bundle from
 # /system/etc/security/cacerts on-device (runtime-gated by $ANDROID_DATA, inert
 # elsewhere). no-afalgeng below replaces the old afalg time64 source patch.

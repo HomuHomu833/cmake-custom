@@ -134,6 +134,11 @@ case "$PLATFORM" in
       *gnu*)  ZIG_C_FLAGS="";        ZIG_LINKER_FLAGS="-static-libstdc++ -static-libgcc" ;;
       *)      ZIG_C_FLAGS="";        ZIG_LINKER_FLAGS="" ;;
     esac
+    # mips64 N64: clang warns "-fno-PIC ignored ... with -mabicalls and the N64
+    # ABI", and cmake fails a feature probe on any warning in its output, so
+    # every C++ check reports "no" and the build stops at "does not support
+    # C++11". Silence just that diagnostic.
+    case "$TARGET" in mips64*) ZIG_C_FLAGS="$ZIG_C_FLAGS -Wno-option-ignored" ;; esac
     ZIG_CXX_FLAGS="$ZIG_C_FLAGS"
     ;;
   bsd)
@@ -253,6 +258,12 @@ cp "$ROOTDIR/patches/cmake/cmCurl.cxx" "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmC
 # 32-bit time_t -> chrono::from_time_t won't link. Drop it (musl is always 64-bit).
 sed -i 's/add_compile_definitions(_FILE_OFFSET_BITS=64 _TIME_BITS=64)/add_compile_definitions(_FILE_OFFSET_BITS=64)/' \
     "$ROOTDIR/cmake-$CMAKE_VERSION/CompileFlags.cmake" || true
+
+# cmzstd picks its x86 cpuid path off __x86_64__/_M_X64, which arm64ec defines
+# for x64 compatibility, and then fails on "invalid output constraint '=a'".
+# Require that we are not on an ARM target as well. No-op on real x86.
+sed -i 's@#elif defined(__x86_64__) || defined(_M_X64) || defined(__i386__)@#elif (defined(__x86_64__) || defined(_M_X64) || defined(__i386__)) \&\& !defined(__aarch64__) \&\& !defined(_M_ARM64) \&\& !defined(_M_ARM64EC) \&\& !defined(__arm64ec__)@' \
+    "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmzstd/lib/common/cpu.h" || true
 
 case "$PLATFORM" in
   android)
