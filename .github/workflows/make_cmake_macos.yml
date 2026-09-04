@@ -24,6 +24,6 @@ jobs:
       platform: macos
       cmake_version: ${{ inputs.cmake_version }}
       ninja_version: ${{ inputs.ninja_version }}
-      # arm64e-apple-darwin
       targets: >-
-        ["x86_64-apple-darwin", "x86_64h-apple-darwin", "arm64-apple-darwin"]
+        ["x86_64-apple-darwin", "x86_64h-apple-darwin",
+         "arm64-apple-darwin", "arm64e-apple-darwin"]
