@@ -11,10 +11,10 @@
 #     bash -c 'scripts/build-openssl.sh && scripts/build.sh'
 FROM ubuntu:24.04
 
-ARG ZIG_VERSION=0.17.0-dev.1476+91a29d707
-ARG LLVM_MINGW_VERSION=20260728
-ARG MACOS_SDK_VERSION=15.5
+ARG ZIG_VERSION=0.17.0-dev.1978+c961124d9
+ARG LLVM_MINGW_VERSION=20260826
 ARG REPO_OWNER=HomuHomu833
+ARG MACOS_SDK_VERSION=26.1
 
 ENV DEBIAN_FRONTEND=noninteractive
 # build-essential/cmake/ninja: host tools to bootstrap the CMake/Ninja cross build.
