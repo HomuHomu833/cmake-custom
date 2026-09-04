@@ -40,6 +40,10 @@ case "$PLATFORM" in
       x86_64)  OPENSSL_TARGET="mingw64" ;;
       aarch64) OPENSSL_TARGET="mingwarm64" ;;   # OpenSSL 3.6+
       i686)    OPENSSL_TARGET="mingw" ;;
+      # No upstream config: supplied by patches/openssl/50-llvm-mingw.conf.
+      armv7)   OPENSSL_TARGET="mingw-armv7" ;;
+      arm64ec) OPENSSL_TARGET="mingw-arm64ec" ;;
+      *)       echo "No OpenSSL Configure target for windows ARCH='$ARCH'" >&2; exit 1 ;;
     esac ;;
   android)
     : "${NDK_VERSION:?set NDK_VERSION for the android build}"
@@ -95,6 +99,7 @@ case "$PLATFORM" in
       aarch64_be)      OPENSSL_TARGET="linux-generic64" ;;
       arm|armhf)       OPENSSL_TARGET="linux-armv4" ;;
       armeb)           OPENSSL_TARGET="linux-generic32" ;;
+      loongarch32)     OPENSSL_TARGET="linux-generic32" ;;
       loongarch64)     OPENSSL_TARGET="linux64-loongarch64" ;;
       mips|mipsel)     OPENSSL_TARGET="linux-mips32" ;;
       mips64|mips64el)
@@ -140,7 +145,7 @@ esac
 case "$PLATFORM" in
   linux|bsd)
     case "$ARCH" in
-      x86|arm|armhf|armeb|riscv32|powerpc|mips|mipsel|hexagon)
+      x86|arm|armhf|armeb|riscv32|powerpc|mips|mipsel|hexagon|loongarch32)
         SSL_EXTRA="$SSL_EXTRA -DBROKEN_CLANG_ATOMICS" ;;
     esac ;;
 esac
@@ -153,6 +158,9 @@ rm -f /tmp/openssl.tar.gz
 mv "$ROOTDIR/openssl-$OPENSSL_VERSION" "$ROOTDIR/openssl"
 cd "$ROOTDIR/openssl"
 sed -i '/^\s*shared_cflag\s*=>\s*"-fPIC",\s*$/d' Configurations/10-main.conf
+# armv7/arm64ec windows have no upstream config; OpenSSL merges every
+# Configurations/*.conf, so dropping ours in defines those two targets.
+cp "$ROOTDIR/patches/openssl/50-llvm-mingw.conf" Configurations/
 # android.patch makes X509_get_default_cert_file build a CA bundle from
 # /system/etc/security/cacerts on-device (runtime-gated by $ANDROID_DATA, inert
 # elsewhere). no-afalgeng below replaces the old afalg time64 source patch.
