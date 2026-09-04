@@ -75,9 +75,12 @@ case "$PLATFORM" in
     export MACOSX_DEPLOYMENT_TARGET=11.0
     APPLY_PATCHES=0
     case "$ARCH" in
-      arm64|arm64e|aarch64) OSX_ARCH=arm64 ;;
-      x86_64h)              OSX_ARCH=x86_64h ;;
-      *)                    OSX_ARCH=x86_64 ;;
+      arm64e)          OSX_ARCH=arm64e ;;   # distinct PAC ABI, not arm64:
+                                            # an arm64 libcrypto will not link
+                                            # into an arm64e cmake.
+      arm64|aarch64)   OSX_ARCH=arm64 ;;
+      x86_64h)         OSX_ARCH=x86_64h ;;
+      *)               OSX_ARCH=x86_64 ;;
     esac
     CCWRAP="$(ls "$TC/bin/${OSX_ARCH}-apple-darwin"*-clang 2>/dev/null | head -n1 || true)"
     [ -n "$CCWRAP" ] || { echo "osxcross clang wrapper for $OSX_ARCH not found" >&2; exit 1; }

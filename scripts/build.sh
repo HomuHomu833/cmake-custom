@@ -35,6 +35,13 @@ case "$PLATFORM" in
     TARGET_OS=Windows
     ZIG_C_FLAGS=""
     ZIG_CXX_FLAGS=""
+    # arm64ec advertises x64 compatibility (_M_AMD64), so cmzstd's SIMD probe
+    # takes the SSE2 branch and includes <emmintrin.h>, which the aarch64
+    # backend cannot compile. ZSTD_NO_INTRINSICS is zstd's own opt-out.
+    if [ "$ARCH" = arm64ec ]; then
+      ZIG_C_FLAGS="-DZSTD_NO_INTRINSICS"
+      ZIG_CXX_FLAGS="-DZSTD_NO_INTRINSICS"
+    fi
     # Static libwinpthread, no --whole-archive (it pulls winpthread's version.o
     # VERSIONINFO, clashing with cmake's CMakeVersion.rc.res).
     ZIG_LINKER_FLAGS="-static-libstdc++ -static-libgcc -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic"
