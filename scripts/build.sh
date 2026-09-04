@@ -14,6 +14,13 @@ set -euo pipefail
 ROOTDIR="${ROOTDIR:-$PWD}"
 : "${PLATFORM:?set PLATFORM}" "${TARGET:?set TARGET}" "${CMAKE_VERSION:?set CMAKE_VERSION}" "${NINJA_VERSION:?set NINJA_VERSION}"
 ARCH="${TARGET%%-*}"
+
+# zig target for the compiler wrappers. powerpc64le-linux-gnu needs an explicit
+# glibc >= 2.32: clang gives it IEEE-128 long double, so zig's libc++ calls
+# glibc's __snprintfieee128 / __fprintfieee128 / __vfprintfieee128, added in
+# 2.32. Without a version zig picks an older glibc and the link fails.
+ZIG_TRIPLE="$TARGET"
+if [ "$TARGET" = powerpc64le-linux-gnu ]; then ZIG_TRIPLE="powerpc64le-linux-gnu.2.32"; fi
 EXTRAS_DIR="$ROOTDIR/extras"
 BUILD_DIR="$ROOTDIR/build"
 INSTALL_DIR="$ROOTDIR/install"
@@ -121,7 +128,7 @@ case "$PLATFORM" in
     # Linux (musl/gnu) via zig-as-llvm. SYSTEM_NAME=Linux.
     TC=/opt/zig-as-llvm
     [ -d "$ROOTDIR/patches/zig" ] && cp -R "$ROOTDIR/patches/zig/." /opt/zig/ || true
-    export ZIG_TARGET="$TARGET"
+    export ZIG_TARGET="$ZIG_TRIPLE"
     ZIG_CC="$TC/bin/cc"; ZIG_CXX="$TC/bin/c++"; ZIG_LD="$TC/bin/ld"
     ZIG_OBJCOPY="$TC/bin/objcopy"; ZIG_AR="$TC/bin/ar"; ZIG_RANLIB="$TC/bin/ranlib"; ZIG_STRIP="$TC/bin/strip"
     TARGET_OS=Linux
@@ -138,7 +145,7 @@ case "$PLATFORM" in
     # OS field so cmlibuv/cmake pick the right *BSD code paths.
     TC=/opt/zig-as-llvm
     [ -d "$ROOTDIR/patches/zig" ] && cp -R "$ROOTDIR/patches/zig/." /opt/zig/ || true
-    export ZIG_TARGET="$TARGET"
+    export ZIG_TARGET="$ZIG_TRIPLE"
     ZIG_CC="$TC/bin/cc"; ZIG_CXX="$TC/bin/c++"; ZIG_LD="$TC/bin/ld"
     ZIG_OBJCOPY="$TC/bin/objcopy"; ZIG_AR="$TC/bin/ar"; ZIG_RANLIB="$TC/bin/ranlib"; ZIG_STRIP="$TC/bin/strip"
     case "$(echo "$TARGET" | cut -d- -f2)" in
