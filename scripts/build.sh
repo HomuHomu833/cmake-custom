@@ -259,11 +259,18 @@ cp "$ROOTDIR/patches/cmake/cmCurl.cxx" "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmC
 sed -i 's/add_compile_definitions(_FILE_OFFSET_BITS=64 _TIME_BITS=64)/add_compile_definitions(_FILE_OFFSET_BITS=64)/' \
     "$ROOTDIR/cmake-$CMAKE_VERSION/CompileFlags.cmake" || true
 
-# cmzstd picks its x86 cpuid path off __x86_64__/_M_X64, which arm64ec defines
-# for x64 compatibility, and then fails on "invalid output constraint '=a'".
-# Require that we are not on an ARM target as well. No-op on real x86.
-sed -i 's@#elif defined(__x86_64__) || defined(_M_X64) || defined(__i386__)@#elif (defined(__x86_64__) || defined(_M_X64) || defined(__i386__)) \&\& !defined(__aarch64__) \&\& !defined(_M_ARM64) \&\& !defined(_M_ARM64EC) \&\& !defined(__arm64ec__)@' \
-    "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmzstd/lib/common/cpu.h" || true
+# arm64ec defines __x86_64__/_M_X64 for x64 compatibility, so every x86 branch
+# in cmzstd is taken on a target the aarch64 backend has to codegen: cpuid asm
+# ("invalid output constraint '=a'") and the .p2align hints in the decode loop,
+# which crash LLVM with "Failed to evaluate function length in SEH unwind info"
+# (llvm/llvm-project#122707). Make each x86 test require a non-ARM target too;
+# a no-op on real x86, where none of the ARM macros are defined.
+_notarm='!defined(__aarch64__) \&\& !defined(_M_ARM64) \&\& !defined(_M_ARM64EC) \&\& !defined(__arm64ec__)'
+grep -rl 'defined(__x86_64__)\|defined(_M_X64)' \
+    "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmzstd" 2>/dev/null | while read -r _f; do
+  sed -i -e "s@defined(__x86_64__)@(defined(__x86_64__) \&\& $_notarm)@g" \
+         -e "s@defined(_M_X64)@(defined(_M_X64) \&\& $_notarm)@g" "$_f"
+done
 
 case "$PLATFORM" in
   android)
