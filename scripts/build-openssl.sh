@@ -93,7 +93,6 @@ case "$PLATFORM" in
       *)                    OPENSSL_TARGET="darwin64-x86_64-cc" ;;
     esac ;;
   linux)
-    # zig (musl/gnu). Overlay the musl libc source fixes (lib is a+w).
     TC=/opt/zig-as-llvm
     [ -d "$ROOTDIR/patches/zig" ] && cp -R "$ROOTDIR/patches/zig/." /opt/zig/ || true
     export ZIG_TARGET="$TARGET"
@@ -129,8 +128,6 @@ case "$PLATFORM" in
     TC=/opt/zig-as-llvm
     [ -d "$ROOTDIR/patches/zig" ] && cp -R "$ROOTDIR/patches/zig/." /opt/zig/ || true
     export ZIG_TARGET="$TARGET"
-    # ppc64le glibc: clang's IEEE-128 long double makes libc++ call
-    # glibc's __*ieee128 printf entries, which arrived in 2.32.
     case "$TARGET" in powerpc64le-*-gnu*) export ZIG_TARGET="$TARGET.2.32" ;; esac
     CC="$TC/bin/cc"; CXX="$TC/bin/c++"; AR="$TC/bin/ar"; RANLIB="$TC/bin/ranlib"
     # The /dev/crypto engine needs <crypto/cryptodev.h>, absent from some BSD
