@@ -50,19 +50,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Skip if already released
-        id: check
-        run: |
-          url="https://github.com/${{ github.repository }}/releases/download/${{ inputs.cmake_version }}/cmake-${{ matrix.target }}.${{ inputs.platform == 'windows' && '7z' || 'tar.xz' }}"
-          if curl --head --fail --silent "$url" >/dev/null; then
-            echo "Artifact already exists, skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Build
-        if: steps.check.outputs.skip == 'false'
         run: |
           IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/cmake-builder:latest"
           docker run --rm \
@@ -79,7 +67,6 @@ jobs:
             bash -c 'scripts/build-openssl.sh && scripts/build.sh && scripts/make-cmake.sh'
 
       - name: Release
-        if: steps.check.outputs.skip == 'false'
         uses: ncipollo/release-action@v1.21.0
         with:
           tag: "${{ inputs.cmake_version }}"
