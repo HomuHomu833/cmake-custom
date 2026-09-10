@@ -18,6 +18,46 @@ cd "$ROOTDIR"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
+# Unpack ARCHIVE into DEST, picking the tool from the extension.
+unpack() {
+  case "$1" in
+    *.tar.gz|*.tgz) tar -xzf "$1" -C "$2" ;;
+    *.tar.xz)       tar -xJf "$1" -C "$2" ;;
+    *.tar.bz2)      tar -xjf "$1" -C "$2" ;;
+    *.zip)          unzip -qq -o "$1" -d "$2" ;;
+    *) echo "unpack: don't know how to unpack $1" >&2; return 1 ;;
+  esac
+}
+
+# Download URL to ARCHIVE and unpack it into DEST (default: the current
+# directory), re-downloading when the unpack fails. ARCHIVE is removed on the
+# way out. Usage: fetch_unpack URL ARCHIVE [DEST]
+#
+# aria2c's own retries cannot see a truncated download. Endpoints that generate
+# archives on the fly -- gitiles' +archive, codeload -- stream them chunked with
+# no Content-Length (aria2 logs the size as "0B/0B"), so when the far end cuts
+# the stream short there is no expected size to compare against: aria2 prints
+# "(OK):download completed" and exits 0 on a 600KiB truncation of a 200MiB
+# archive, and the damage only surfaces further down as "gzip: stdin:
+# unexpected end of file". Unpacking is the only integrity check available, so
+# the retry has to wrap the download and the unpack together.
+fetch_unpack() {
+  local url="$1" archive="$2" dest="${3:-.}" i=0
+  mkdir -p "$dest"
+  while :; do
+    rm -f "$archive" "$archive.aria2"
+    if fetch --dir="$(dirname "$archive")" -o "$(basename "$archive")" "$url" \
+       && unpack "$archive" "$dest"; then
+      rm -f "$archive"
+      return 0
+    fi
+    i=$((i + 1))
+    [ "$i" -ge 5 ] && { echo "fetch_unpack: $url still incomplete after $i attempts" >&2; return 1; }
+    echo "fetch_unpack: $(basename "$archive") came down incomplete, retry $i/5 in $((5 * i))s..." >&2
+    sleep $((5 * i))
+  done
+}
+
 OPENSSL_VERSION="${OPENSSL_VERSION:-3.6.3}"
 
 # --- per-platform compiler + OpenSSL Configure target -----------------------
@@ -52,8 +92,7 @@ case "$PLATFORM" in
     NDK_NAME="android-ndk-r${NDK_VERSION}${NDK_REVISION}"; NDK_DIR="$ROOTDIR/$NDK_NAME"
     if [ ! -d "$NDK_DIR" ]; then
       log "Downloading official NDK ($NDK_NAME)"
-      fetch --dir="$ROOTDIR" -o ndk.zip "https://dl.google.com/android/repository/${NDK_NAME}-linux.zip"
-      unzip -qq "$ROOTDIR/ndk.zip" -d "$ROOTDIR"; rm -f "$ROOTDIR/ndk.zip"
+      fetch_unpack "https://dl.google.com/android/repository/${NDK_NAME}-linux.zip" "$ROOTDIR/ndk.zip" "$ROOTDIR"
     fi
     TC="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64"
     CC="$TC/bin/${TARGET}${API}-clang"; CXX="${CC}++"
@@ -159,9 +198,8 @@ esac
 
 log "Building OpenSSL ($TARGET -> $OPENSSL_TARGET)"
 rm -rf "$EXTRAS_DIR" "$ROOTDIR/openssl"
-fetch --dir=/tmp -o openssl.tar.gz https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz
-gzip -d < /tmp/openssl.tar.gz | tar -x -C "$ROOTDIR"
-rm -f /tmp/openssl.tar.gz
+fetch_unpack "https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz" \
+  /tmp/openssl.tar.gz "$ROOTDIR"
 mv "$ROOTDIR/openssl-$OPENSSL_VERSION" "$ROOTDIR/openssl"
 cd "$ROOTDIR/openssl"
 sed -i '/^\s*shared_cflag\s*=>\s*"-fPIC",\s*$/d' Configurations/10-main.conf
