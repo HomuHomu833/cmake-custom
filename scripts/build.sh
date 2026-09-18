@@ -110,7 +110,7 @@ case "$PLATFORM" in
     # -I patches/cmake: stub "android_lf.h" libarchive includes under __ANDROID__.
     ZIG_C_FLAGS="-I$ROOTDIR/patches/cmake -include $ROOTDIR/patches/cmake/android_compat.h -static"
     ZIG_CXX_FLAGS="$ZIG_C_FLAGS"
-    ZIG_LINKER_FLAGS="-static"
+    ZIG_LINKER_FLAGS="-static -Wl,-z,max-page-size=16384"
 
     # arm/arm64 executables need an 8-word-aligned PT_TLS to clear bionic's TCB
     # slots, or the loader aborts with "executable's TLS segment is underaligned".
