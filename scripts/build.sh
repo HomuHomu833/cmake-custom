@@ -448,6 +448,11 @@ else
     # this finds nothing there. The bound name is unused either way.
     sed -i 's@except \([A-Za-z_.]*\), \([a-z][a-z]*\):@except \1 as \2:@' \
         "$ROOTDIR/ninja-$NINJA_VERSION/configure.py" || true
+    # These releases reach for getloadavg on anything unix, and bionic has no
+    # such function. Upstream added a branch reading sysinfo() instead; put the
+    # same one in, ahead of the getloadavg fallback it would otherwise take.
+    sed -i '/^#else$/{N;s@^#else\ndouble GetLoadAverage() {@#elif defined(__BIONIC__)\n#include <sys/sysinfo.h>\ndouble GetLoadAverage() {\n  struct sysinfo si;\n  if (sysinfo(\&si) != 0)\n    return -0.0f;\n  return 1.0 / (1 << SI_LOAD_SHIFT) * si.loads[0];\n}\n#else\ndouble GetLoadAverage() {@}' \
+        "$ROOTDIR/ninja-$NINJA_VERSION/src/util.cc" || true
     log "Configuring Ninja $NINJA_VERSION ($TARGET) with configure.py, platform $_njp"
     (
       cd "$ROOTDIR/ninja-$NINJA_VERSION"
