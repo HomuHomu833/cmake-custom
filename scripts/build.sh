@@ -423,8 +423,44 @@ clone_repo "https://github.com/ninja-build/ninja.git" "v$NINJA_VERSION" "$ROOTDI
 build_project CMake "$ROOTDIR/cmake-$CMAKE_VERSION" \
     "$BUILD_DIR/cmake-$CMAKE_VERSION-$TARGET" "$BUILD_DIR/binary-cmake-$CMAKE_VERSION-$TARGET"
 
-build_project Ninja "$ROOTDIR/ninja-$NINJA_VERSION" \
-    "$BUILD_DIR/ninja-$CMAKE_VERSION-$TARGET" "$BUILD_DIR/binary-ninja-$CMAKE_VERSION-$TARGET"
+# ninja only grew a CMakeLists.txt in 1.10, and the cmake packages pair the
+# three oldest releases with 1.5.3 and 1.8.2. Those configure through
+# configure.py, which writes a build.ninja that honours CXX, AR, CFLAGS and
+# LDFLAGS, so the image's own ninja can drive the cross build from it. The
+# flags matter on android in particular: ninja calls posix_spawn, which is
+# what the force-included compat header supplies.
+if [ -f "$ROOTDIR/ninja-$NINJA_VERSION/CMakeLists.txt" ]; then
+    build_project Ninja "$ROOTDIR/ninja-$NINJA_VERSION" \
+        "$BUILD_DIR/ninja-$CMAKE_VERSION-$TARGET" "$BUILD_DIR/binary-ninja-$CMAKE_VERSION-$TARGET"
+else
+    case "$PLATFORM" in
+      macos)   _njp=darwin ;;
+      windows) _njp=mingw ;;
+      bsd)     case "$TARGET" in
+                 *openbsd*) _njp=openbsd ;;
+                 *netbsd*)  _njp=netbsd ;;
+                 *)         _njp=freebsd ;;
+               esac ;;
+      *)       _njp=linux ;;
+    esac
+    log "Configuring Ninja $NINJA_VERSION ($TARGET) with configure.py, platform $_njp"
+    (
+      cd "$ROOTDIR/ninja-$NINJA_VERSION"
+      CXX="$ZIG_CXX" AR="$ZIG_AR" CFLAGS="$ZIG_CXX_FLAGS" LDFLAGS="$ZIG_LINKER_FLAGS" \
+        python3 configure.py --platform="$_njp"
+      ninja -j"$(nproc)"
+    )
+    _njbin="$BUILD_DIR/binary-ninja-$CMAKE_VERSION-$TARGET/bin"
+    mkdir -p "$_njbin"
+    _njgot=0
+    for _n in ninja ninja.exe; do
+      if [ -f "$ROOTDIR/ninja-$NINJA_VERSION/$_n" ]; then
+        cp "$ROOTDIR/ninja-$NINJA_VERSION/$_n" "$_njbin/"; _njgot=1
+      fi
+    done
+    [ "$_njgot" = 1 ] || { echo "configure.py produced no ninja binary" >&2; exit 1; }
+    log "Done -> $_njbin"
+fi
 
 log "Merging Ninja into the CMake install tree"
 mkdir -p "$INSTALL_DIR/$CMAKE_VERSION-$TARGET"
