@@ -467,7 +467,7 @@ else
       # anything that pulls the standard back up.
       CXX="$ZIG_CXX" AR="$ZIG_AR" LDFLAGS="$ZIG_LINKER_FLAGS" \
       CFLAGS="$ZIG_CXX_FLAGS -std=c++11 -D_LIBCPP_ENABLE_CXX17_REMOVED_AUTO_PTR -D_LIBCPP_ENABLE_CXX17_REMOVED_BINDERS" \
-        python3 configure.py --platform="$_njp"
+        python3 configure.py --platform="$_njp" --host=linux
       ninja -j"$(nproc)"
     )
     _njbin="$BUILD_DIR/binary-ninja-$CMAKE_VERSION-$TARGET/bin"
