@@ -84,7 +84,9 @@ case "$PLATFORM" in
     fi
     # Static libwinpthread, no --whole-archive (it pulls winpthread's version.o
     # VERSIONINFO, clashing with cmake's CMakeVersion.rc.res).
-    ZIG_LINKER_FLAGS="-static-libstdc++ -static-libgcc -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic"
+    # crypt32 for openssl's capi engine, which libcrypto always carries on
+    # windows. cmcurl links it itself from 4.x, older trees leave it undefined.
+    ZIG_LINKER_FLAGS="-static-libstdc++ -static-libgcc -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic -lcrypt32"
     # cmake's .rc build calls bare `windres`; llvm-mingw only ships it prefixed.
     export RC="$TC/bin/${TARGET}-windres"; export WINDRES="$RC"
     EXTRA_CMAKE=(-DCMAKE_RC_COMPILER="$RC")
