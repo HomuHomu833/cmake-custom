@@ -348,6 +348,13 @@ if [ -f "$_la/archive_cryptor_private.h" ]; then
   sed -i 's@^\(\s*\)if (ctx->digest)$@\1if (*ctx == NULL)\n\1  return (ARCHIVE_OK);@' "$_la/archive_digest.c" || true
   sed -i 's@^\(\s*\)EVP_DigestFinal(ctx, md, NULL);@\1EVP_DigestFinal(*ctx, md, NULL);\n\1EVP_MD_CTX_free(*ctx);\n\1*ctx = NULL;@' "$_la/archive_digest.c" || true
 fi
+# That libarchive also pins windows to XP, and llvm-mingw's headers reject the
+# pair. Move it to 7, the oldest of the versions newer cmake still offers.
+sed -i -e 's@SET(NTDDI_VERSION 0x05010000)@SET(NTDDI_VERSION 0x06010000)@' \
+       -e 's@SET(_WIN32_WINNT 0x0501)@SET(_WIN32_WINNT 0x0601)@' \
+       -e 's@SET(WINVER 0x0501)@SET(WINVER 0x0601)@' \
+    "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibarchive/CMakeLists.txt" || true
+
 # It also names its own fallback arc4random_buf, which bionic has declared
 # since API 21. Upstream renamed it la_arc4random_buf; the define carries that
 # to the call and the definition, both under the same guard.
