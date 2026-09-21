@@ -443,6 +443,11 @@ else
                esac ;;
       *)       _njp=linux ;;
     esac
+    # 1.5.3's configure.py still spells one except clause the python 2 way,
+    # and the image has 3.12. 1.8.2 already reads as python 3 throughout, so
+    # this finds nothing there. The bound name is unused either way.
+    sed -i 's@except \([A-Za-z_.]*\), \([a-z][a-z]*\):@except \1 as \2:@' \
+        "$ROOTDIR/ninja-$NINJA_VERSION/configure.py" || true
     log "Configuring Ninja $NINJA_VERSION ($TARGET) with configure.py, platform $_njp"
     (
       cd "$ROOTDIR/ninja-$NINJA_VERSION"
