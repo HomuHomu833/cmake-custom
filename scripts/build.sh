@@ -276,7 +276,7 @@ build_project() {
 
 clone_repo "https://github.com/Kitware/CMake.git" "v$CMAKE_VERSION" "$ROOTDIR/cmake-$CMAKE_VERSION"
 # cmWindowsRegistry.cxx: rewrite the cm::string_view initializer the cross-clang
-# rejects; then swap in our cmCurl.cxx (CA-bundle handling for the static build).
+# rejects. The file arrived in 3.24, so this is a no-op on anything older.
 sed -i '/auto separator = cm::string_view{/,/}/c\
     cm::string_view separator;\
     if (this->RegistryFormat.start(1) == std::string::npos ||\
@@ -288,16 +288,18 @@ sed -i '/auto separator = cm::string_view{/,/}/c\
         this->RegistryFormat.end(1) - this->RegistryFormat.start(1)\
     };\
 }' "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmWindowsRegistry.cxx" || true
-# Our copy is written against the modern tree: it includes cm/string_view and
-# cmStringAlgorithms.h, neither of which exists before 3.17. Everything else
-# here is a sed that no-ops on a tree without the pattern, but this one lands
-# whatever the version and leaves a file that cannot compile, so ask the tree
-# whether it is new enough rather than the version string.
-if [ -f "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmStringAlgorithms.h" ]; then
-  cp "$ROOTDIR/patches/cmake/cmCurl.cxx" "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmCurl.cxx"
-else
-  log "cmCurl: tree predates cmStringAlgorithms.h, keeping its own"
-fi
+# cmCurl.cxx: teach the CA search about termux's $PREFIX/etc/tls/cert.pem,
+# reached from $HOME/../usr since cmake has no $PREFIX. Two edits rather than a
+# copy of the whole file, which only ever matched one cmake generation.
+# GetEnv and FileExists both come from KWSys and have carried these signatures
+# since well before 3.6, so the same edits land on every version we build.
+sed -i '0,/^  std::string e;$/s@^  std::string e;$@  std::string e;\n  std::string termux_ca;\n  if (cmSystemTools::GetEnv("HOME", termux_ca)) {\n    termux_ca += "/../usr/etc/tls/cert.pem";\n  }@' \
+    "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmCurl.cxx" || true
+# Ahead of the Fedora bundle, so an explicit cafile and the SSL_CERT_* env vars
+# still win. Inside the guard that define sits in, which is already off for
+# windows, apple and a system curl, and termux is none of those.
+sed -i 's@^#\( *\)define CMAKE_CAFILE_FEDORA@  else if (!termux_ca.empty() \&\& cmSystemTools::FileExists(termux_ca, true)) {\n    ::CURLcode res =\n      ::curl_easy_setopt(curl, CURLOPT_CAINFO, termux_ca.c_str());\n    check_curl_result(res, "Unable to set TLS/SSL Verify CAINFO: ");\n  }\n#\1define CMAKE_CAFILE_FEDORA@' \
+    "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmCurl.cxx" || true
 
 # cmake forces _TIME_BITS=64 on 32-bit Linux, but zig's 32-bit-glibc libc++ is
 # 32-bit time_t -> chrono::from_time_t won't link. Drop it (musl is always 64-bit).
