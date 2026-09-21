@@ -451,7 +451,12 @@ else
     log "Configuring Ninja $NINJA_VERSION ($TARGET) with configure.py, platform $_njp"
     (
       cd "$ROOTDIR/ninja-$NINJA_VERSION"
-      CXX="$ZIG_CXX" AR="$ZIG_AR" CFLAGS="$ZIG_CXX_FLAGS" LDFLAGS="$ZIG_LINKER_FLAGS" \
+      # configure.py passes no -std, so clang picks gnu++17 and this vintage
+      # of ninja loses auto_ptr and mem_fun, both dropped in C++17. Ask for 11,
+      # where libc++ still has them, and name libc++'s escape hatches too in
+      # case anything else pulls the standard back up.
+      CXX="$ZIG_CXX" AR="$ZIG_AR" LDFLAGS="$ZIG_LINKER_FLAGS" \
+      CFLAGS="$ZIG_CXX_FLAGS -std=c++11 -D_LIBCPP_ENABLE_CXX17_REMOVED_AUTO_PTR -D_LIBCPP_ENABLE_CXX17_REMOVED_BINDERS" \
         python3 configure.py --platform="$_njp"
       ninja -j"$(nproc)"
     )
