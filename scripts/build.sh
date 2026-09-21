@@ -288,7 +288,16 @@ sed -i '/auto separator = cm::string_view{/,/}/c\
         this->RegistryFormat.end(1) - this->RegistryFormat.start(1)\
     };\
 }' "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmWindowsRegistry.cxx" || true
-cp "$ROOTDIR/patches/cmake/cmCurl.cxx" "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmCurl.cxx"
+# Our copy is written against the modern tree: it includes cm/string_view and
+# cmStringAlgorithms.h, neither of which exists before 3.17. Everything else
+# here is a sed that no-ops on a tree without the pattern, but this one lands
+# whatever the version and leaves a file that cannot compile, so ask the tree
+# whether it is new enough rather than the version string.
+if [ -f "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmStringAlgorithms.h" ]; then
+  cp "$ROOTDIR/patches/cmake/cmCurl.cxx" "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmCurl.cxx"
+else
+  log "cmCurl: tree predates cmStringAlgorithms.h, keeping its own"
+fi
 
 # cmake forces _TIME_BITS=64 on 32-bit Linux, but zig's 32-bit-glibc libc++ is
 # 32-bit time_t -> chrono::from_time_t won't link. Drop it (musl is always 64-bit).
