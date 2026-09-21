@@ -258,7 +258,13 @@ build_project() {
             # HAVE_LCHMOD off for the same reason as the two beside it: the
             # symbol is in libc.a so cmake's link test finds it, but bionic
             # only declares it from API 36 and we build against 24.
-            cmake_flags+=(-DHAVE_FCHDIR=ON -DHAVE_PIPE=ON -DHAVE_POSIX_SPAWNP=ON -DHAVE_FUTIMESAT=OFF -DHAVE_LUTIMES=OFF -DHAVE_NL_LANGINFO=OFF -DHAVE_LCHMOD=OFF) ;;
+            #
+            # HAVE_MEMMOVE the other way round. expat asks for it with
+            # check_symbol_exists, which takes the symbol's address, and that
+            # comes back not found while wmemmove right next to it is found.
+            # Whatever the check dislikes about a builtin here, bionic has
+            # memmove as every libc does, and expat #errors without it.
+            cmake_flags+=(-DHAVE_FCHDIR=ON -DHAVE_PIPE=ON -DHAVE_POSIX_SPAWNP=ON -DHAVE_FUTIMESAT=OFF -DHAVE_LUTIMES=OFF -DHAVE_NL_LANGINFO=OFF -DHAVE_LCHMOD=OFF -DHAVE_MEMMOVE=ON) ;;
         esac
     fi
     # cmake only prints "- no" when a feature probe fails, and treats any warning
