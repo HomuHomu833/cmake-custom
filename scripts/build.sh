@@ -231,8 +231,12 @@ build_project() {
         -DCMAKE_AR="$ZIG_AR"
         -DCMAKE_RANLIB="$ZIG_RANLIB"
         -DCMAKE_STRIP="$ZIG_STRIP"
-        -DCMAKE_C_FLAGS="$ZIG_C_FLAGS"
-        -DCMAKE_CXX_FLAGS="$ZIG_CXX_FLAGS"
+        # cm_cxx_features.cmake fails a feature whose try_compile output holds
+        # the word warning, and cmake links those with -rdynamic, which clang
+        # reports as unused on a static cross target. That alone was enough to
+        # lose unique_ptr and fail the C++11 check.
+        -DCMAKE_C_FLAGS="$ZIG_C_FLAGS -Wno-unused-command-line-argument"
+        -DCMAKE_CXX_FLAGS="$ZIG_CXX_FLAGS -Wno-unused-command-line-argument"
         -DCMAKE_EXE_LINKER_FLAGS="$ZIG_LINKER_FLAGS"
         -DCMAKE_INSTALL_PREFIX="$install_dir"
         -DBUILD_TESTING=OFF
