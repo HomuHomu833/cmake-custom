@@ -73,14 +73,18 @@ case "$PLATFORM" in
     ZIG_RANLIB="$TC/bin/${TARGET}-ranlib"; ZIG_STRIP="$TC/bin/${TARGET}-strip"
     ZIG_OBJCOPY="$TC/bin/${TARGET}-objcopy"
     TARGET_OS=Windows
-    ZIG_C_FLAGS=""
-    ZIG_CXX_FLAGS=""
+    # mingw's stdlib.h and inttypes.h define llabs, imaxabs, lltoa and their
+    # neighbours inline, and cmliblzma ends up with a copy in more than one
+    # object. __CRT__NO_INLINE is the header's own switch for declaring them
+    # instead and taking the ones in libmingwex.
+    ZIG_C_FLAGS="-D__CRT__NO_INLINE"
+    ZIG_CXX_FLAGS="-D__CRT__NO_INLINE"
     # arm64ec advertises x64 compatibility (_M_AMD64), so cmzstd's SIMD probe
     # takes the SSE2 branch and includes <emmintrin.h>, which the aarch64
     # backend cannot compile. ZSTD_NO_INTRINSICS is zstd's own opt-out.
     if [ "$ARCH" = arm64ec ]; then
-      ZIG_C_FLAGS="-DZSTD_NO_INTRINSICS"
-      ZIG_CXX_FLAGS="-DZSTD_NO_INTRINSICS"
+      ZIG_C_FLAGS="$ZIG_C_FLAGS -DZSTD_NO_INTRINSICS"
+      ZIG_CXX_FLAGS="$ZIG_CXX_FLAGS -DZSTD_NO_INTRINSICS"
     fi
     # Static libwinpthread, no --whole-archive (it pulls winpthread's version.o
     # VERSIONINFO, clashing with cmake's CMakeVersion.rc.res).
