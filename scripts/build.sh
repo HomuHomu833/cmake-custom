@@ -301,6 +301,19 @@ sed -i '0,/^  std::string e;$/s@^  std::string e;$@  std::string e;\n  std::stri
 sed -i 's@^#\( *\)define CMAKE_CAFILE_FEDORA@  else if (!termux_ca.empty() \&\& cmSystemTools::FileExists(termux_ca, true)) {\n    ::CURLcode res =\n      ::curl_easy_setopt(curl, CURLOPT_CAINFO, termux_ca.c_str());\n    check_curl_result(res, "Unable to set TLS/SSL Verify CAINFO: ");\n  }\n#\1define CMAKE_CAFILE_FEDORA@' \
     "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmCurl.cxx" || true
 
+# The curl cmake bundled up to 7.49 dumps certificate details by reaching into
+# X509 and EVP_PKEY, which openssl made opaque in 1.1, so it cannot compile
+# against the 3.x we build. cmake never asks for it: the one call sits behind
+# CURLOPT_CERTINFO, which nothing in cmake sets. Compile the block out.
+# Anchored on struct SessionHandle, renamed to Curl_easy in curl 7.50, so this
+# reaches the old trees and leaves every newer one alone.
+_ossl="$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmcurl/lib/vtls/openssl.c"
+if [ -f "$_ossl" ]; then
+  sed -i 's@^static void pubkey_show(struct SessionHandle \*data,@#if 0 /* certinfo dump, reads openssl 1.0 struct internals */\n&@' "$_ossl" || true
+  sed -i 's@^static CURLcode pkp_pin_peer_pubkey(X509\* cert, const char \*pinnedpubkey)@#endif\n&@' "$_ossl" || true
+  sed -i 's@(void)get_cert_chain(conn, connssl);@(void)0; /* certinfo dump disabled */@' "$_ossl" || true
+fi
+
 # cmake forces _TIME_BITS=64 on 32-bit Linux, but zig's 32-bit-glibc libc++ is
 # 32-bit time_t -> chrono::from_time_t won't link. Drop it (musl is always 64-bit).
 sed -i 's/add_compile_definitions(_FILE_OFFSET_BITS=64 _TIME_BITS=64)/add_compile_definitions(_FILE_OFFSET_BITS=64)/' \
