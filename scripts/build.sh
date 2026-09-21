@@ -253,17 +253,6 @@ build_project() {
             -DCMAKE_USE_SYSTEM_LIBUV=OFF -DCMAKE_USE_SYSTEM_FORM=OFF
             -DCMAKE_USE_SYSTEM_CPPDAP=OFF
         )
-        # The libarchive bundled before 3.17 holds EVP_CIPHER_CTX, HMAC_CTX and
-        # EVP_MD_CTX by value, which openssl made opaque in 1.1, and upstream
-        # moved them to pointers rather than keeping both shapes. Leave openssl
-        # out of libarchive on those trees: it costs encrypted zip and 7z, which
-        # nothing in cmake reaches until file(ARCHIVE_EXTRACT) in 3.18. This is
-        # libarchive's own option, so curl keeps CMAKE_USE_OPENSSL and https.
-        if grep -qE '^[[:space:]]*EVP_CIPHER_CTX[[:space:]]+ctx;' \
-             "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibarchive/libarchive/archive_cryptor_private.h" 2>/dev/null; then
-          log "libarchive: holds openssl contexts by value, building it without openssl"
-          cmake_flags+=(-DENABLE_OPENSSL=OFF)
-        fi
         case "$PLATFORM" in
           android)
             cmake_flags+=(-DHAVE_FCHDIR=ON -DHAVE_PIPE=ON -DHAVE_POSIX_SPAWNP=ON -DHAVE_FUTIMESAT=OFF -DHAVE_LUTIMES=OFF -DHAVE_NL_LANGINFO=OFF) ;;
@@ -323,6 +312,32 @@ if [ -f "$_ossl" ]; then
   sed -i 's@^static void pubkey_show(struct SessionHandle \*data,@#if 0 /* certinfo dump, reads openssl 1.0 struct internals */\n&@' "$_ossl" || true
   sed -i 's@^static CURLcode pkp_pin_peer_pubkey(X509\* cert, const char \*pinnedpubkey)@#endif\n&@' "$_ossl" || true
   sed -i 's@(void)get_cert_chain(conn, connssl);@(void)0; /* certinfo dump disabled */@' "$_ossl" || true
+fi
+
+# The libarchive bundled before 3.17 keeps EVP_CIPHER_CTX, HMAC_CTX and six
+# EVP_MD_CTX by value, all opaque since openssl 1.1. Upstream moved them to
+# pointers; do the same here so these trees keep their crypto rather than
+# building without it. Every anchor names the by-value spelling, so a tree that
+# already carries the pointer form sees no match.
+_la="$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibarchive/libarchive"
+if [ -f "$_la/archive_cryptor_private.h" ]; then
+  sed -i 's@^\(\s*\)EVP_CIPHER_CTX\(\s*\)ctx;@\1EVP_CIPHER_CTX\2*ctx;@' "$_la/archive_cryptor_private.h" || true
+  sed -i 's@^\(\s*\)EVP_CIPHER_CTX_init(&ctx->ctx);@\1ctx->ctx = EVP_CIPHER_CTX_new();\n\1if (ctx->ctx == NULL)\n\1\treturn -1;@' "$_la/archive_cryptor.c" || true
+  sed -i 's@EVP_EncryptInit_ex(&ctx->ctx,@EVP_EncryptInit_ex(ctx->ctx,@;s@EVP_EncryptUpdate(&ctx->ctx,@EVP_EncryptUpdate(ctx->ctx,@' "$_la/archive_cryptor.c" || true
+  sed -i 's@^\(\s*\)EVP_CIPHER_CTX_cleanup(&ctx->ctx);@\1EVP_CIPHER_CTX_free(ctx->ctx);\n\1ctx->ctx = NULL;@' "$_la/archive_cryptor.c" || true
+  # HMAC_Init lost its short form in 1.1 as well, hence _ex with a NULL engine.
+  sed -i 's@^typedef\(\s*\)HMAC_CTX \(archive_hmac_sha1_ctx\);@typedef\1HMAC_CTX* \2;@' "$_la/archive_hmac_private.h" || true
+  sed -i 's@^\(\s*\)HMAC_CTX_init(ctx);@\1if ((*ctx = HMAC_CTX_new()) == NULL)\n\1\treturn -1;@' "$_la/archive_hmac.c" || true
+  sed -i 's@HMAC_Init(ctx,\(.*\)EVP_sha1());@HMAC_Init_ex(*ctx,\1EVP_sha1(), NULL);@' "$_la/archive_hmac.c" || true
+  sed -i 's@HMAC_Update(ctx,@HMAC_Update(*ctx,@;s@HMAC_Final(ctx,@HMAC_Final(*ctx,@' "$_la/archive_hmac.c" || true
+  # Two lines at once: the other backends clean up with the same memset.
+  sed -i '/HMAC_CTX_cleanup(ctx);/{N;s@^\(\s*\)HMAC_CTX_cleanup(ctx);\n\s*memset(ctx, 0, sizeof(\*ctx));@\1HMAC_CTX_free(*ctx);\n\1*ctx = NULL;@}' "$_la/archive_hmac.c" || true
+  sed -i 's@^typedef EVP_MD_CTX \(archive_[a-z0-9_]*_ctx\);@typedef EVP_MD_CTX* \1;@' "$_la/archive_digest_private.h" || true
+  sed -i 's@^\(\s*\)EVP_DigestInit(ctx, \(EVP_[a-z0-9]*()\));@\1if ((*ctx = EVP_MD_CTX_new()) == NULL)\n\1  return (ARCHIVE_FAILED);\n\1EVP_DigestInit(*ctx, \2);@' "$_la/archive_digest.c" || true
+  sed -i 's@EVP_DigestUpdate(ctx,@EVP_DigestUpdate(*ctx,@' "$_la/archive_digest.c" || true
+  # The empty-context guard read the struct, so it becomes a null check.
+  sed -i 's@^\(\s*\)if (ctx->digest)$@\1if (*ctx == NULL)\n\1  return (ARCHIVE_OK);@' "$_la/archive_digest.c" || true
+  sed -i 's@^\(\s*\)EVP_DigestFinal(ctx, md, NULL);@\1EVP_DigestFinal(*ctx, md, NULL);\n\1EVP_MD_CTX_free(*ctx);\n\1*ctx = NULL;@' "$_la/archive_digest.c" || true
 fi
 
 # cmake forces _TIME_BITS=64 on 32-bit Linux, but zig's 32-bit-glibc libc++ is
