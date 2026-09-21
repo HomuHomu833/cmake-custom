@@ -255,23 +255,14 @@ build_project() {
         )
         case "$PLATFORM" in
           android)
-            # HAVE_LCHMOD off for the same reason as the two beside it: the
-            # symbol is in libc.a so cmake's link test finds it, but bionic
-            # only declares it from API 36 and we build against 24.
-            #
-            # HAVE_MEMMOVE the other way round. expat asks for it with
-            # check_symbol_exists, which takes the symbol's address, and that
-            # comes back not found while wmemmove right next to it is found.
-            # Whatever the check dislikes about a builtin here, bionic has
-            # memmove as every libc does, and expat #errors without it.
+            # lchmod: in libc.a so the link test finds it, declared only from
+            # API 36. memmove the other way round, check_symbol_exists misses
+            # it and expat #errors without it.
             cmake_flags+=(-DHAVE_FCHDIR=ON -DHAVE_PIPE=ON -DHAVE_POSIX_SPAWNP=ON -DHAVE_FUTIMESAT=OFF -DHAVE_LUTIMES=OFF -DHAVE_NL_LANGINFO=OFF -DHAVE_LCHMOD=OFF -DHAVE_MEMMOVE=ON) ;;
           windows)
-            # curl picks its non-blocking call by try-compiling one program per
-            # candidate. The windows one passes int* where ioctlsocket wants
-            # u_long*, which clang 15 turned from a warning into an error, so it
-            # fails and the amiga one below it passes on nothing but a pointer
-            # sign warning, leaving nonblock.c calling IoctlSocket. Answer the
-            # question directly; the test macro skips a check already defined.
+            # curl's windows probe passes int* where ioctlsocket wants u_long*,
+            # an error since clang 15, so it loses to the amiga one and
+            # nonblock.c calls IoctlSocket. A defined value skips the probe.
             cmake_flags+=(-DHAVE_IOCTLSOCKET_FIONBIO=1) ;;
         esac
     fi
@@ -305,25 +296,20 @@ sed -i '/auto separator = cm::string_view{/,/}/c\
         this->RegistryFormat.end(1) - this->RegistryFormat.start(1)\
     };\
 }' "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmWindowsRegistry.cxx" || true
-# cmCurl.cxx: teach the CA search about termux's $PREFIX/etc/tls/cert.pem,
-# reached from $HOME/../usr since cmake has no $PREFIX. Two edits rather than a
-# copy of the whole file, which only ever matched one cmake generation.
-# GetEnv and FileExists both come from KWSys and have carried these signatures
-# since well before 3.6, so the same edits land on every version we build.
+# cmCurl.cxx: find termux's cert.pem at $HOME/../usr/etc/tls, cmake having no
+# $PREFIX. Edits rather than a copy of the file, which pinned one generation.
+# GetEnv and FileExists kept these signatures since well before 3.6.
 sed -i '0,/^  std::string e;$/s@^  std::string e;$@  std::string e;\n  std::string termux_ca;\n  if (cmSystemTools::GetEnv("HOME", termux_ca)) {\n    termux_ca += "/../usr/etc/tls/cert.pem";\n  }@' \
     "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmCurl.cxx" || true
-# Ahead of the Fedora bundle, so an explicit cafile and the SSL_CERT_* env vars
-# still win. Inside the guard that define sits in, which is already off for
-# windows, apple and a system curl, and termux is none of those.
+# Ahead of the Fedora bundle so an explicit cafile and SSL_CERT_* still win,
+# and inside its guard, already off for windows, apple and a system curl.
 sed -i 's@^#\( *\)define CMAKE_CAFILE_FEDORA@  else if (!termux_ca.empty() \&\& cmSystemTools::FileExists(termux_ca, true)) {\n    ::CURLcode res =\n      ::curl_easy_setopt(curl, CURLOPT_CAINFO, termux_ca.c_str());\n    check_curl_result(res, "Unable to set TLS/SSL Verify CAINFO: ");\n  }\n#\1define CMAKE_CAFILE_FEDORA@' \
     "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmCurl.cxx" || true
 
-# The curl cmake bundled up to 7.49 dumps certificate details by reaching into
-# X509 and EVP_PKEY, which openssl made opaque in 1.1, so it cannot compile
-# against the 3.x we build. cmake never asks for it: the one call sits behind
-# CURLOPT_CERTINFO, which nothing in cmake sets. Compile the block out.
-# Anchored on struct SessionHandle, renamed to Curl_easy in curl 7.50, so this
-# reaches the old trees and leaves every newer one alone.
+# curl up to 7.49 dumps certificate details through X509 and EVP_PKEY, opaque
+# since openssl 1.1. The one call is behind CURLOPT_CERTINFO, which nothing in
+# cmake sets, so compile it out. SessionHandle became Curl_easy in 7.50, so
+# the anchors reach only the old trees.
 _ossl="$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmcurl/lib/vtls/openssl.c"
 if [ -f "$_ossl" ]; then
   sed -i 's@^static void pubkey_show(struct SessionHandle \*data,@#if 0 /* certinfo dump, reads openssl 1.0 struct internals */\n&@' "$_ossl" || true
@@ -331,18 +317,15 @@ if [ -f "$_ossl" ]; then
   sed -i 's@(void)get_cert_chain(conn, connssl);@(void)0; /* certinfo dump disabled */@' "$_ossl" || true
 fi
 
-# std::set wants a comparator it can call on a const reference, and ctest's
-# FragmentCompare::operator() is not const here. libc++ only started refusing
-# it recently, which is why the NDK's older copy and osxcross accept this and
-# zig's does not. Upstream made it const; do the same.
+# std::set calls its comparator on a const reference and ctest's is not const
+# here. Only a recent libc++ refuses it, hence zig and not the NDK's older
+# copy. Upstream made it const.
 sed -i 's@^\(  bool operator()(std::string const& l, std::string const& r)\)$@\1 const@' \
     "$ROOTDIR/cmake-$CMAKE_VERSION/Source/CTest/cmCTestBuildHandler.cxx" || true
 
-# The libarchive bundled before 3.17 keeps EVP_CIPHER_CTX, HMAC_CTX and six
-# EVP_MD_CTX by value, all opaque since openssl 1.1. Upstream moved them to
-# pointers; do the same here so these trees keep their crypto rather than
-# building without it. Every anchor names the by-value spelling, so a tree that
-# already carries the pointer form sees no match.
+# libarchive before 3.17 keeps EVP_CIPHER_CTX, HMAC_CTX and six EVP_MD_CTX by
+# value, opaque since openssl 1.1. Upstream moved them to pointers. Every
+# anchor names the by-value spelling, so the pointer form sees no match.
 _la="$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibarchive/libarchive"
 if [ -f "$_la/archive_cryptor_private.h" ]; then
   sed -i 's@^\(\s*\)EVP_CIPHER_CTX\(\s*\)ctx;@\1EVP_CIPHER_CTX\2*ctx;@' "$_la/archive_cryptor_private.h" || true
@@ -363,10 +346,9 @@ if [ -f "$_la/archive_cryptor_private.h" ]; then
   sed -i 's@^\(\s*\)if (ctx->digest)$@\1if (*ctx == NULL)\n\1  return (ARCHIVE_OK);@' "$_la/archive_digest.c" || true
   sed -i 's@^\(\s*\)EVP_DigestFinal(ctx, md, NULL);@\1EVP_DigestFinal(*ctx, md, NULL);\n\1EVP_MD_CTX_free(*ctx);\n\1*ctx = NULL;@' "$_la/archive_digest.c" || true
 fi
-# That libarchive also names its own fallback arc4random_buf, which collides
-# once a libc declares one: bionic has since API 21. Upstream renamed it
-# la_arc4random_buf; the define carries that through the call and the
-# definition, both of which sit under the same HAVE_ARC4RANDOM_BUF guard.
+# It also names its own fallback arc4random_buf, which bionic has declared
+# since API 21. Upstream renamed it la_arc4random_buf; the define carries that
+# to the call and the definition, both under the same guard.
 sed -i 's@^static void arc4random_buf(void \*, size_t);@static void la_arc4random_buf(void *, size_t);\n#define arc4random_buf la_arc4random_buf@' \
     "$_la/archive_random.c" 2>/dev/null || true
 
@@ -438,12 +420,10 @@ clone_repo "https://github.com/ninja-build/ninja.git" "v$NINJA_VERSION" "$ROOTDI
 build_project CMake "$ROOTDIR/cmake-$CMAKE_VERSION" \
     "$BUILD_DIR/cmake-$CMAKE_VERSION-$TARGET" "$BUILD_DIR/binary-cmake-$CMAKE_VERSION-$TARGET"
 
-# ninja only grew a CMakeLists.txt in 1.10, and the cmake packages pair the
-# three oldest releases with 1.5.3 and 1.8.2. Those configure through
-# configure.py, which writes a build.ninja that honours CXX, AR, CFLAGS and
-# LDFLAGS, so the image's own ninja can drive the cross build from it. The
-# flags matter on android in particular: ninja calls posix_spawn, which is
-# what the force-included compat header supplies.
+# ninja only grew a CMakeLists.txt in 1.10, and the three oldest cmakes pair
+# with 1.5.3 and 1.8.2. configure.py writes a build.ninja honouring CXX, AR,
+# CFLAGS and LDFLAGS, so the image's ninja can drive the cross build. Those
+# flags also carry the posix_spawn shim ninja needs on android.
 if [ -f "$ROOTDIR/ninja-$NINJA_VERSION/CMakeLists.txt" ]; then
     build_project Ninja "$ROOTDIR/ninja-$NINJA_VERSION" \
         "$BUILD_DIR/ninja-$CMAKE_VERSION-$TARGET" "$BUILD_DIR/binary-ninja-$CMAKE_VERSION-$TARGET"
@@ -458,23 +438,20 @@ else
                esac ;;
       *)       _njp=linux ;;
     esac
-    # 1.5.3's configure.py still spells one except clause the python 2 way,
-    # and the image has 3.12. 1.8.2 already reads as python 3 throughout, so
-    # this finds nothing there. The bound name is unused either way.
+    # 1.5.3's configure.py spells one except clause the python 2 way and the
+    # image has 3.12. 1.8.2 is already python 3, so this finds nothing there.
     sed -i 's@except \([A-Za-z_.]*\), \([a-z][a-z]*\):@except \1 as \2:@' \
         "$ROOTDIR/ninja-$NINJA_VERSION/configure.py" || true
-    # These releases reach for getloadavg on anything unix, and bionic has no
-    # such function. Upstream added a branch reading sysinfo() instead; put the
-    # same one in, ahead of the getloadavg fallback it would otherwise take.
+    # Both reach for getloadavg on anything unix and bionic has none. Upstream
+    # reads sysinfo() instead; same branch, ahead of the fallback.
     sed -i '/^#else$/{N;s@^#else\ndouble GetLoadAverage() {@#elif defined(__BIONIC__)\n#include <sys/sysinfo.h>\ndouble GetLoadAverage() {\n  struct sysinfo si;\n  if (sysinfo(\&si) != 0)\n    return -0.0f;\n  return 1.0 / (1 << SI_LOAD_SHIFT) * si.loads[0];\n}\n#else\ndouble GetLoadAverage() {@}' \
         "$ROOTDIR/ninja-$NINJA_VERSION/src/util.cc" || true
     log "Configuring Ninja $NINJA_VERSION ($TARGET) with configure.py, platform $_njp"
     (
       cd "$ROOTDIR/ninja-$NINJA_VERSION"
-      # configure.py passes no -std, so clang picks gnu++17 and this vintage
-      # of ninja loses auto_ptr and mem_fun, both dropped in C++17. Ask for 11,
-      # where libc++ still has them, and name libc++'s escape hatches too in
-      # case anything else pulls the standard back up.
+      # configure.py passes no -std, so clang picks gnu++17 and this ninja
+      # loses auto_ptr and mem_fun. C++11 still has both; the two macros cover
+      # anything that pulls the standard back up.
       CXX="$ZIG_CXX" AR="$ZIG_AR" LDFLAGS="$ZIG_LINKER_FLAGS" \
       CFLAGS="$ZIG_CXX_FLAGS -std=c++11 -D_LIBCPP_ENABLE_CXX17_REMOVED_AUTO_PTR -D_LIBCPP_ENABLE_CXX17_REMOVED_BINDERS" \
         python3 configure.py --platform="$_njp"
