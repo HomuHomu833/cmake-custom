@@ -255,7 +255,10 @@ build_project() {
         )
         case "$PLATFORM" in
           android)
-            cmake_flags+=(-DHAVE_FCHDIR=ON -DHAVE_PIPE=ON -DHAVE_POSIX_SPAWNP=ON -DHAVE_FUTIMESAT=OFF -DHAVE_LUTIMES=OFF -DHAVE_NL_LANGINFO=OFF) ;;
+            # HAVE_LCHMOD off for the same reason as the two beside it: the
+            # symbol is in libc.a so cmake's link test finds it, but bionic
+            # only declares it from API 36 and we build against 24.
+            cmake_flags+=(-DHAVE_FCHDIR=ON -DHAVE_PIPE=ON -DHAVE_POSIX_SPAWNP=ON -DHAVE_FUTIMESAT=OFF -DHAVE_LUTIMES=OFF -DHAVE_NL_LANGINFO=OFF -DHAVE_LCHMOD=OFF) ;;
         esac
     fi
     # cmake only prints "- no" when a feature probe fails, and treats any warning
