@@ -253,6 +253,17 @@ build_project() {
             -DCMAKE_USE_SYSTEM_LIBUV=OFF -DCMAKE_USE_SYSTEM_FORM=OFF
             -DCMAKE_USE_SYSTEM_CPPDAP=OFF
         )
+        # The libarchive bundled before 3.17 holds EVP_CIPHER_CTX, HMAC_CTX and
+        # EVP_MD_CTX by value, which openssl made opaque in 1.1, and upstream
+        # moved them to pointers rather than keeping both shapes. Leave openssl
+        # out of libarchive on those trees: it costs encrypted zip and 7z, which
+        # nothing in cmake reaches until file(ARCHIVE_EXTRACT) in 3.18. This is
+        # libarchive's own option, so curl keeps CMAKE_USE_OPENSSL and https.
+        if grep -qE '^[[:space:]]*EVP_CIPHER_CTX[[:space:]]+ctx;' \
+             "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibarchive/libarchive/archive_cryptor_private.h" 2>/dev/null; then
+          log "libarchive: holds openssl contexts by value, building it without openssl"
+          cmake_flags+=(-DENABLE_OPENSSL=OFF)
+        fi
         case "$PLATFORM" in
           android)
             cmake_flags+=(-DHAVE_FCHDIR=ON -DHAVE_PIPE=ON -DHAVE_POSIX_SPAWNP=ON -DHAVE_FUTIMESAT=OFF -DHAVE_LUTIMES=OFF -DHAVE_NL_LANGINFO=OFF) ;;
