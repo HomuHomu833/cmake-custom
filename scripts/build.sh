@@ -339,6 +339,12 @@ if [ -f "$_la/archive_cryptor_private.h" ]; then
   sed -i 's@^\(\s*\)if (ctx->digest)$@\1if (*ctx == NULL)\n\1  return (ARCHIVE_OK);@' "$_la/archive_digest.c" || true
   sed -i 's@^\(\s*\)EVP_DigestFinal(ctx, md, NULL);@\1EVP_DigestFinal(*ctx, md, NULL);\n\1EVP_MD_CTX_free(*ctx);\n\1*ctx = NULL;@' "$_la/archive_digest.c" || true
 fi
+# That libarchive also names its own fallback arc4random_buf, which collides
+# once a libc declares one: bionic has since API 21. Upstream renamed it
+# la_arc4random_buf; the define carries that through the call and the
+# definition, both of which sit under the same HAVE_ARC4RANDOM_BUF guard.
+sed -i 's@^static void arc4random_buf(void \*, size_t);@static void la_arc4random_buf(void *, size_t);\n#define arc4random_buf la_arc4random_buf@' \
+    "$_la/archive_random.c" 2>/dev/null || true
 
 # cmake forces _TIME_BITS=64 on 32-bit Linux, but zig's 32-bit-glibc libc++ is
 # 32-bit time_t -> chrono::from_time_t won't link. Drop it (musl is always 64-bit).
