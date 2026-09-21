@@ -265,6 +265,14 @@ build_project() {
             # Whatever the check dislikes about a builtin here, bionic has
             # memmove as every libc does, and expat #errors without it.
             cmake_flags+=(-DHAVE_FCHDIR=ON -DHAVE_PIPE=ON -DHAVE_POSIX_SPAWNP=ON -DHAVE_FUTIMESAT=OFF -DHAVE_LUTIMES=OFF -DHAVE_NL_LANGINFO=OFF -DHAVE_LCHMOD=OFF -DHAVE_MEMMOVE=ON) ;;
+          windows)
+            # curl picks its non-blocking call by try-compiling one program per
+            # candidate. The windows one passes int* where ioctlsocket wants
+            # u_long*, which clang 15 turned from a warning into an error, so it
+            # fails and the amiga one below it passes on nothing but a pointer
+            # sign warning, leaving nonblock.c calling IoctlSocket. Answer the
+            # question directly; the test macro skips a check already defined.
+            cmake_flags+=(-DHAVE_IOCTLSOCKET_FIONBIO=1) ;;
         esac
     fi
     # cmake only prints "- no" when a feature probe fails, and treats any warning
@@ -322,6 +330,13 @@ if [ -f "$_ossl" ]; then
   sed -i 's@^static CURLcode pkp_pin_peer_pubkey(X509\* cert, const char \*pinnedpubkey)@#endif\n&@' "$_ossl" || true
   sed -i 's@(void)get_cert_chain(conn, connssl);@(void)0; /* certinfo dump disabled */@' "$_ossl" || true
 fi
+
+# std::set wants a comparator it can call on a const reference, and ctest's
+# FragmentCompare::operator() is not const here. libc++ only started refusing
+# it recently, which is why the NDK's older copy and osxcross accept this and
+# zig's does not. Upstream made it const; do the same.
+sed -i 's@^\(  bool operator()(std::string const& l, std::string const& r)\)$@\1 const@' \
+    "$ROOTDIR/cmake-$CMAKE_VERSION/Source/CTest/cmCTestBuildHandler.cxx" || true
 
 # The libarchive bundled before 3.17 keeps EVP_CIPHER_CTX, HMAC_CTX and six
 # EVP_MD_CTX by value, all opaque since openssl 1.1. Upstream moved them to
