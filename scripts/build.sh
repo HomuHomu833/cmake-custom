@@ -448,6 +448,12 @@ case "$PLATFORM" in
     # a block of its own; the uv__accept4 anchor holds only before that.
     perl -0pi -e 's@^# include <sys/cpuset\.h>\n(# if defined\(__FreeBSD__\)\n#  define uv__accept4)@# if defined(__FreeBSD__)\n#  include <sys/cpuset.h>\n# endif\n$1@m' \
         "$_uvsrc/core.c" || true
+    # From 3.18 cmake builds itself with no compiler extensions, and OpenBSD's
+    # headers keep vasprintf behind them, which libc++'s locale fallbacks call.
+    # Leave OpenBSD on the gnu dialect every cmake before 3.18 used. Upstream
+    # carves QNX out of the same two lines for the same kind of reason.
+    perl -0pi -e 's@^([ \t]*)set\(CMAKE_C_EXTENSIONS FALSE\)\n[ \t]*set\(CMAKE_CXX_EXTENSIONS FALSE\)\n@$1if(NOT CMAKE_SYSTEM_NAME STREQUAL "OpenBSD")\n$1  set(CMAKE_C_EXTENSIONS FALSE)\n$1  set(CMAKE_CXX_EXTENSIONS FALSE)\n$1endif()\n@m' \
+        "$ROOTDIR/cmake-$CMAKE_VERSION/Source/CMakeLists.txt" || true
     # FreeBSD really declares sendmmsg/recvmmsg, so libuv's own layout-compatible
     # struct is a pointer mismatch rather than the missing prototype linux has.
     sed -i -e 's@return sendmmsg(fd, mmsg, vlen, flags);@return sendmmsg(fd, (struct mmsghdr*) mmsg, vlen, flags);@' \
