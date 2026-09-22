@@ -448,13 +448,15 @@ case "$PLATFORM" in
     # a block of its own; the uv__accept4 anchor holds only before that.
     perl -0pi -e 's@^# include <sys/cpuset\.h>\n(# if defined\(__FreeBSD__\)\n#  define uv__accept4)@# if defined(__FreeBSD__)\n#  include <sys/cpuset.h>\n# endif\n$1@m' \
         "$_uvsrc/core.c" || true
-    # The lexers ask for _XOPEN_SOURCE and _POSIX_C_SOURCE, which is how OpenBSD
-    # is told to hide every BSD-only declaration, vasprintf among them. libc++'s
-    # locale fallbacks call it, so each lexer including <iostream> fails to
-    # compile. Upstream excuses OpenBSD from both macros.
-    sed -i -e 's@^#if !defined(_WIN32) \&\& !defined(__sun)$@#if !defined(_WIN32) \&\& !defined(__sun) \&\& !defined(__OpenBSD__)@' \
-           -e 's@^#if defined(__OpenBSD__) || defined(__FreeBSD__) || defined(__NetBSD__)$@#if defined(__FreeBSD__) || defined(__NetBSD__)@' \
-        "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmStandardLexer.h" 2>/dev/null || true
+    # A handful of sources ask for _XOPEN_SOURCE and _POSIX_C_SOURCE, which is
+    # how OpenBSD is told to hide every BSD-only declaration, vasprintf among
+    # them. libc++'s locale fallbacks call it, so anything reaching <iostream>
+    # past one of these fails to compile. Upstream excuses OpenBSD from both.
+    grep -rl '_XOPEN_SOURCE 700' "$ROOTDIR/cmake-$CMAKE_VERSION/Source" 2>/dev/null | while read -r _f; do
+      sed -i -e 's@^#if !defined(_WIN32) \&\& !defined(__sun)$@#if !defined(_WIN32) \&\& !defined(__sun) \&\& !defined(__OpenBSD__)@' \
+             -e 's@^#if defined(__OpenBSD__) || defined(__FreeBSD__) || defined(__NetBSD__)$@#if defined(__FreeBSD__) || defined(__NetBSD__)@' \
+          "$_f"
+    done
     # FreeBSD really declares sendmmsg/recvmmsg, so libuv's own layout-compatible
     # struct is a pointer mismatch rather than the missing prototype linux has.
     sed -i -e 's@return sendmmsg(fd, mmsg, vlen, flags);@return sendmmsg(fd, (struct mmsghdr*) mmsg, vlen, flags);@' \
