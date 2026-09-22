@@ -1,13 +1,14 @@
 /*
- * netbsd_mips_compat.c supply the version-renamed libc symbols that zig's
- * NetBSD abilist tags for the other arches but omits for mips.
+ * netbsd_compat.c supply the version-renamed libc symbols zig's NetBSD abilist
+ * omits.
  *
  * NetBSD's headers __RENAME() kevent() -> __kevent100 and dup3() -> __dup3100
- * (see sys/event.h, unistd.h). zig's bundled NetBSD abilist provides those
- * symbols for aarch64/x86_64/etc. but not for mips, so cmlibuv's kqueue backend
- * fails to link on mips-NetBSD with "undefined symbol: __kevent100 / __dup3100".
- * These definitions match zig's bundled NetBSD 10 ABI, so they are safe to link
- * only for that gap. Compiled and appended to the exe link by scripts/build.sh.
+ * (see sys/event.h, unistd.h). zig's bundled NetBSD abilist does not carry
+ * those names, so cmlibuv's kqueue backend fails to link with "undefined
+ * symbol: __kevent100 / __dup3100". These definitions match zig's bundled
+ * NetBSD 10 ABI. The link is static, so where libc.a does define them its
+ * member is simply never pulled in. Compiled and appended to the exe link by
+ * scripts/build.sh.
  */
 #include <sys/types.h>
 #include <sys/syscall.h>
@@ -38,7 +39,7 @@ int __dup3100(int oldd, int newd, int flags) {
 
 /* kevent(2): NetBSD 10 syscall 501 (SYS___kevent100). NetBSD syscall numbers are
  * architecture-independent, and struct kevent here is the same definition
- * cmlibuv compiled against, so this is ABI-correct for mips. */
+ * cmlibuv compiled against, so this is ABI-correct everywhere. */
 int __kevent100(int kq, const struct kevent *changelist, size_t nchanges,
                 struct kevent *eventlist, size_t nevents,
                 const struct timespec *timeout) {

@@ -250,6 +250,7 @@ build_project() {
             -DHAVE_POLL_FINE_EXITCODE=1
             -DKWSYS_LFS_WORKS=1 -DKWSYS_LFS_WORKS__TRYRUN_OUTPUT=""
             -DHAVE_FSETXATTR_5=1 -DHAVE_FSETXATTR_5__TRYRUN_OUTPUT=""
+            -DHAVE_FSETXATTR_6=1 -DHAVE_FSETXATTR_6__TRYRUN_OUTPUT=""
             -DCMAKE_USE_OPENSSL=ON
             -DCMAKE_USE_SYSTEM_CURL=OFF -DCMAKE_USE_SYSTEM_ZLIB=OFF
             -DCMAKE_USE_SYSTEM_KWIML=OFF -DCMAKE_USE_SYSTEM_LIBRHASH=OFF
@@ -304,8 +305,10 @@ sed -i '/auto separator = cm::string_view{/,/}/c\
 }' "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmWindowsRegistry.cxx" || true
 # cmCurl.cxx: find termux's cert.pem at $HOME/../usr/etc/tls, cmake having no
 # $PREFIX. Edits rather than a copy of the file, which pinned one generation.
-# GetEnv and FileExists kept these signatures since well before 3.6.
-sed -i '0,/^  std::string e;$/s@^  std::string e;$@  std::string e;\n  std::string termux_ca;\n  if (cmSystemTools::GetEnv("HOME", termux_ca)) {\n    termux_ca += "/../usr/etc/tls/cert.pem";\n  }@' \
+# GetEnv and FileExists kept these signatures since well before 3.6. The guard
+# is the one cmake puts on the bundle search itself, which from 3.10 is also
+# what pulls in cmSystemTools.h.
+sed -i '0,/^  std::string e;$/s@^  std::string e;$@  std::string e;\n#if !defined(CMAKE_USE_SYSTEM_CURL) \&\& !defined(_WIN32) \&\& !defined(__APPLE__) \&\& !defined(CURL_CA_BUNDLE) \&\& !defined(CURL_CA_PATH)\n  std::string termux_ca;\n  if (cmSystemTools::GetEnv("HOME", termux_ca)) {\n    termux_ca += "/../usr/etc/tls/cert.pem";\n  }\n#endif@' \
     "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmCurl.cxx" || true
 # Ahead of the Fedora bundle so an explicit cafile and SSL_CERT_* still win,
 # and inside its guard, already off for windows, apple and a system curl.
@@ -322,6 +325,13 @@ if [ -f "$_ossl" ]; then
   sed -i 's@^static CURLcode pkp_pin_peer_pubkey(X509\* cert, const char \*pinnedpubkey)@#endif\n&@' "$_ossl" || true
   sed -i 's@(void)get_cert_chain(conn, connssl);@(void)0; /* certinfo dump disabled */@' "$_ossl" || true
 fi
+
+# Any warning at all in a C++ feature probe counts as the feature missing, and
+# cross targets warn about things the probe has nothing to do with: arm64e
+# objects the linker calls an ABI mismatch, loongarch's unsettled lp64f name.
+# Upstream carries the ld one and a growing list of the same shape.
+sed -i 's@^.*-Winvalid-command-line-argument.*$@&\n    # Filter out ld warnings.\n    string(REGEX REPLACE "[^\\n]*ld: warning: [^\\n]*" "" check_output "${check_output}")\n    # Filter out the target ABI names clang has yet to settle on.\n    string(REGEX REPLACE "[^\\n]*warning: .[^\\n]*. has not been standardized[^\\n]*" "" check_output "${check_output}")@' \
+    "$ROOTDIR/cmake-$CMAKE_VERSION/Source/Checks/cm_cxx_features.cmake" 2>/dev/null || true
 
 # std::set calls its comparator on a const reference and ctest's is not const
 # here. Only a recent libc++ refuses it, hence zig and not the NDK's older
@@ -381,6 +391,12 @@ grep -rl 'defined(__x86_64__)\|defined(_M_X64)' \
          -e "s@defined(_M_X64)@(defined(_M_X64) \&\& $_notarm)@g" "$_f"
 done
 
+# cmlibuv's non-MSVC windows branch reaches straight for lock xchgb, which
+# assembles nowhere but x86. __sync_fetch_and_or is what the MSVC branch beside
+# it already means and every llvm-mingw target has it.
+perl -0pi -e 's/(static inline char uv__atomic_exchange_set\(char volatile\* target\) \{).*?\n\}/$1\n  return __sync_fetch_and_or(target, 1);\n}/s' \
+    "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/src/win/atomicops-inl.h" 2>/dev/null || true
+
 case "$PLATFORM" in
   android)
     # pthread_setaffinity_np is bionic API 36+; gate off cmlibuv's affinity block
@@ -391,10 +407,13 @@ case "$PLATFORM" in
     #  - drop rt: bionic folded librt into libc.
     #  - add pthread-fixes.c: __ANDROID__ redirects pthread_sigmask to
     #    uv__pthread_sigmask, defined only in cmlibuv's absent Android branch.
-    sed -i 's/list(APPEND uv_libraries dl rt)/list(APPEND uv_libraries dl)/' \
-        "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/CMakeLists.txt" || true
-    sed -i 's#src/unix/epoll.c#src/unix/pthread-fixes.c\n    src/unix/epoll.c#' \
-        "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/CMakeLists.txt" || true
+    _uvcml="$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/CMakeLists.txt"
+    sed -i 's/list(APPEND uv_libraries dl rt)/list(APPEND uv_libraries dl)/' "$_uvcml" || true
+    # epoll.c only split out of linux-core.c in libuv 1.45, so take whichever
+    # of the two this tree has, never both.
+    _uvepoll=src/unix/epoll.c
+    grep -q "$_uvepoll" "$_uvcml" || _uvepoll=src/unix/linux-core.c
+    sed -i "s#$_uvepoll#src/unix/pthread-fixes.c\n    $_uvepoll#" "$_uvcml" || true
     # Android host: CMakeDetermineSystem.cmake reads $PREFIX/include/android/
     # api-level.h for CMAKE_SYSTEM_VERSION. PREFIX is a Termux convention, so
     # elsewhere it is unset and the unguarded file(READ) errors out. Fall back to
@@ -407,24 +426,29 @@ case "$PLATFORM" in
         "$ROOTDIR/cmake-$CMAKE_VERSION/Modules/CMakeDetermineSystem.cmake" || true
     ;;
   bsd)
-    # NetBSD only: zig's NetBSD sysroot ships <kvm.h> but no libkvm; stub the one
-    # consumer (uv_resident_set_memory) and drop the -lkvm link so cmake links.
+    # None of zig's BSD sysroots carry libkvm, and the FreeBSD one has no
+    # <kvm.h> either. Drop the -lkvm every BSD block asks for, and stub the one
+    # consumer, uv_resident_set_memory. Older libuv reaches for it on NetBSD and
+    # FreeBSD; newer trees only on NetBSD, where OpenBSD's sysctl form is used.
+    _uvsrc="$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/src/unix"
+    sed -i '/^[[:space:]]*kvm[[:space:]]*$/d' \
+        "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/CMakeLists.txt" || true
+    case "$(echo "$TARGET" | cut -d- -f2)" in
+      netbsd|freebsd)
+        _uvbsd="$_uvsrc/$(echo "$TARGET" | cut -d- -f2).c"
+        sed -i '/^#include <kvm\.h>$/d' "$_uvbsd" || true
+        perl -0pi -e 's/int uv_resident_set_memory\(size_t\* rss\) \{.*?\n\}/int uv_resident_set_memory(size_t* rss) {\n  *rss = 0;\n  return UV_ENOSYS;\n}/s' \
+            "$_uvbsd" || true
+        ;;
+    esac
+    # NetBSD __RENAME()s kevent() to __kevent100 and dup3() to __dup3100, which
+    # zig's abilist does not carry, so cmlibuv's kqueue backend will not link.
+    # Compile a small ABI-matched shim and append it to every exe link.
     if [ "$(echo "$TARGET" | cut -d- -f2)" = netbsd ]; then
-      perl -0pi -e 's/int uv_resident_set_memory\(size_t\* rss\) \{.*?\n\}/int uv_resident_set_memory(size_t* rss) {\n  *rss = 0;\n  return UV_ENOSYS;\n}/s' \
-          "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/src/unix/netbsd.c" || true
-      sed -i '/^[[:space:]]*kvm[[:space:]]*$/d' \
-          "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/CMakeLists.txt" || true
-      # mips-NetBSD: zig's abilist omits the version-renamed __kevent100/__dup3100
-      # (present for other arches), so cmlibuv's kqueue backend won't link.
-      # Compile a small ABI-matched shim and append it to every exe link.
-      case "$ARCH" in
-        mips*)
-          mkdir -p "$BUILD_DIR"
-          "$ZIG_CC" -Os -c "$ROOTDIR/patches/cmake/netbsd_mips_compat.c" \
-              -o "$BUILD_DIR/netbsd_mips_compat.o"
-          ZIG_LINKER_FLAGS="$ZIG_LINKER_FLAGS $BUILD_DIR/netbsd_mips_compat.o"
-          ;;
-      esac
+      mkdir -p "$BUILD_DIR"
+      "$ZIG_CC" -Os -c "$ROOTDIR/patches/cmake/netbsd_compat.c" \
+          -o "$BUILD_DIR/netbsd_compat.o"
+      ZIG_LINKER_FLAGS="$ZIG_LINKER_FLAGS $BUILD_DIR/netbsd_compat.o"
     fi
     ;;
 esac
