@@ -380,6 +380,12 @@ sed -i 's@^static void arc4random_buf(void \*, size_t);@static void la_arc4rando
 sed -i 's/add_compile_definitions(_FILE_OFFSET_BITS=64 _TIME_BITS=64)/add_compile_definitions(_FILE_OFFSET_BITS=64)/' \
     "$ROOTDIR/cmake-$CMAKE_VERSION/CompileFlags.cmake" || true
 
+# liblzma picks its ctz by _M_X64, which clang defines for every windows target,
+# then calls the _BitScanForward64 only MSVC declares. Upstream xz now asks for
+# the compiler instead. Ahead of the _M_X64 rewrite below, which would hide it.
+sed -i 's@^#\([[:space:]]*\)if defined(_M_X64) // MSVC or Intel C compiler on Windows$@#\1if defined(_MSC_VER) || defined(__INTEL_COMPILER)@' \
+    "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmliblzma/liblzma/common/memcmplen.h" 2>/dev/null || true
+
 # arm64ec defines __x86_64__/_M_X64, so cmake's bundled libraries take their x86
 # branches on an ARM backend: cmzstd's cpuid asm and .p2align hints (the latter
 # crashes LLVM, llvm/llvm-project#122707), cmliblzma's x86-64 range decoder asm.
@@ -403,6 +409,10 @@ case "$PLATFORM" in
     # (3 __linux__||__FreeBSD__ guards: its decls, use, and cpumask entry).
     sed -i 's/#if defined(__linux__) || defined(__FreeBSD__)/#if (defined(__linux__) || defined(__FreeBSD__)) \&\& !defined(__ANDROID__)/' \
         "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/src/unix/process.c" || true
+    # cmake asks the same of pthread_getaffinity_np from 3.18. Upstream spells
+    # the android carve-out into this guard itself later on.
+    sed -i 's@^#  elif defined(__linux__) || defined(__FreeBSD__)$@#  elif (defined(__linux__) \&\& !defined(__ANDROID__)) || defined(__FreeBSD__)@' \
+        "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmAffinity.cxx" 2>/dev/null || true
     # android builds as CMAKE_SYSTEM_NAME=Linux, so cmlibuv uses its Linux set:
     #  - drop rt: bionic folded librt into libc.
     #  - add pthread-fixes.c: __ANDROID__ redirects pthread_sigmask to
@@ -433,6 +443,16 @@ case "$PLATFORM" in
     _uvsrc="$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/src/unix"
     sed -i '/^[[:space:]]*kvm[[:space:]]*$/d' \
         "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/CMakeLists.txt" || true
+    # <sys/cpuset.h> sits in the block every BSD shares, but only FreeBSD has
+    # the header and only FreeBSD reads CPU_SETSIZE out of it. Upstream gave it
+    # a block of its own; the uv__accept4 anchor holds only before that.
+    perl -0pi -e 's@^# include <sys/cpuset\.h>\n(# if defined\(__FreeBSD__\)\n#  define uv__accept4)@# if defined(__FreeBSD__)\n#  include <sys/cpuset.h>\n# endif\n$1@m' \
+        "$_uvsrc/core.c" || true
+    # FreeBSD really declares sendmmsg/recvmmsg, so libuv's own layout-compatible
+    # struct is a pointer mismatch rather than the missing prototype linux has.
+    sed -i -e 's@return sendmmsg(fd, mmsg, vlen, flags);@return sendmmsg(fd, (struct mmsghdr*) mmsg, vlen, flags);@' \
+           -e 's@return recvmmsg(fd, mmsg, vlen, flags, timeout);@return recvmmsg(fd, (struct mmsghdr*) mmsg, vlen, flags, timeout);@' \
+        "$_uvsrc/freebsd.c" || true
     case "$(echo "$TARGET" | cut -d- -f2)" in
       netbsd|freebsd)
         _uvbsd="$_uvsrc/$(echo "$TARGET" | cut -d- -f2).c"
