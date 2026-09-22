@@ -463,8 +463,8 @@ case "$PLATFORM" in
     done
     # FreeBSD really declares sendmmsg/recvmmsg, so libuv's own layout-compatible
     # struct is a pointer mismatch rather than the missing prototype linux has.
-    sed -i -e 's@return sendmmsg(fd, mmsg, vlen, flags);@return sendmmsg(fd, (struct mmsghdr*) mmsg, vlen, flags);@' \
-           -e 's@return recvmmsg(fd, mmsg, vlen, flags, timeout);@return recvmmsg(fd, (struct mmsghdr*) mmsg, vlen, flags, timeout);@' \
+    sed -i -e 's@\(return sendmmsg(fd, \)mmsg,@\1(struct mmsghdr*) mmsg,@' \
+           -e 's@\(return recvmmsg(fd, \)mmsg,@\1(struct mmsghdr*) mmsg,@' \
         "$_uvsrc/freebsd.c" || true
     case "$(echo "$TARGET" | cut -d- -f2)" in
       netbsd|freebsd)
@@ -485,7 +485,22 @@ case "$PLATFORM" in
     fi
     ;;
 esac
+# libuv's copy_file_range shim took the offsets as ssize_t*, which is only the
+# same as the off_t* its caller has on a 64-bit target. Upstream corrected the
+# shim rather than the call.
+sed -i 's@^\(\s*\)ssize_t\* off_\(in\|out\),$@\1off_t* off_\2,@' \
+    "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/src/unix/linux-syscalls.h" \
+    "$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/src/unix/linux-syscalls.c" 2>/dev/null || true
+
 clone_repo "https://github.com/ninja-build/ninja.git" "v$NINJA_VERSION" "$ROOTDIR/ninja-$NINJA_VERSION"
+
+# ninja gates browse mode on unistd.h existing, but mingw ships one without
+# fork or pipe, so browse.cc goes in and will not compile. Upstream asks for
+# the two functions instead.
+sed -i -e 's@^include(CheckIncludeFileCXX)$@include(CheckIncludeFileCXX)\ninclude(CheckSymbolExists)@' \
+       -e 's@check_include_file_cxx(unistd.h PLATFORM_HAS_UNISTD_HEADER)@check_symbol_exists(fork "unistd.h" HAVE_FORK)\n\tcheck_symbol_exists(pipe "unistd.h" HAVE_PIPE)@' \
+       -e 's@set(${RESULT} "${PLATFORM_HAS_UNISTD_HEADER}" PARENT_SCOPE)@set(browse_supported 0)\n\tif(HAVE_FORK AND HAVE_PIPE)\n\t\tset(browse_supported 1)\n\tendif()\n\tset(${RESULT} "${browse_supported}" PARENT_SCOPE)@' \
+    "$ROOTDIR/ninja-$NINJA_VERSION/CMakeLists.txt" 2>/dev/null || true
 
 build_project CMake "$ROOTDIR/cmake-$CMAKE_VERSION" \
     "$BUILD_DIR/cmake-$CMAKE_VERSION-$TARGET" "$BUILD_DIR/binary-cmake-$CMAKE_VERSION-$TARGET"
