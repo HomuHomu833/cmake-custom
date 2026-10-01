@@ -11,6 +11,10 @@ on:
         description: "Ninja Version"
         required: true
         default: "1.12.1"
+      only:
+        description: "Only these targets (JSON array), default all"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -24,6 +28,7 @@ jobs:
       platform: windows
       cmake_version: ${{ inputs.cmake_version }}
       ninja_version: ${{ inputs.ninja_version }}
+      only: ${{ inputs.only }}
       targets: >-
         ["x86_64-w64-mingw32", "aarch64-w64-mingw32", "i686-w64-mingw32",
          "armv7-w64-mingw32", "arm64ec-w64-mingw32"]

@@ -10,6 +10,11 @@ on:
         description: "JSON array of target triples"
         required: true
         type: string
+      only:
+        description: "JSON array replacing targets, when set"
+        required: false
+        type: string
+        default: ""
       cmake_version:
         description: "CMake version (release tag, no leading v)"
         required: true
@@ -38,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJSON(inputs.targets) }}
+        target: ${{ fromJSON(inputs.only != '' && inputs.only || inputs.targets) }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5

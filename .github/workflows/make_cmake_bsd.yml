@@ -11,6 +11,10 @@ on:
         description: "Ninja Version"
         required: true
         default: "1.12.1"
+      only:
+        description: "Only these targets (JSON array), default all"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -24,6 +28,7 @@ jobs:
       platform: bsd
       cmake_version: ${{ inputs.cmake_version }}
       ninja_version: ${{ inputs.ninja_version }}
+      only: ${{ inputs.only }}
       # powerpc-netbsd-eabi, powerpc-freebsd-eabihf
       targets: >-
         ["aarch64-freebsd-none", "aarch64-netbsd-none", "aarch64-openbsd-none",

@@ -11,6 +11,10 @@ on:
         description: "Ninja Version"
         required: true
         default: "1.12.1"
+      only:
+        description: "Only these targets (JSON array), default all"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -24,6 +28,7 @@ jobs:
       platform: linux
       cmake_version: ${{ inputs.cmake_version }}
       ninja_version: ${{ inputs.ninja_version }}
+      only: ${{ inputs.only }}
       # loongarch32-linux-gnu, loongarch32-linux-gnusf
       targets: >-
         ["aarch64-linux-musl", "aarch64-linux-gnu", "aarch64_be-linux-gnu",

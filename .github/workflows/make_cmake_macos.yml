@@ -11,6 +11,10 @@ on:
         description: "Ninja Version"
         required: true
         default: "1.12.1"
+      only:
+        description: "Only these targets (JSON array), default all"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -24,6 +28,7 @@ jobs:
       platform: macos
       cmake_version: ${{ inputs.cmake_version }}
       ninja_version: ${{ inputs.ninja_version }}
+      only: ${{ inputs.only }}
       targets: >-
         ["x86_64-apple-darwin", "x86_64h-apple-darwin",
          "arm64-apple-darwin", "arm64e-apple-darwin"]
