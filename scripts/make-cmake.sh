@@ -28,6 +28,11 @@ STAGE="$ROOTDIR/$CMAKE_VERSION"
 rm -rf "$STAGE"
 mv "$SRC" "$STAGE"
 
+# Ad-hoc (re)sign what strip broke; Apple Silicon kills unsigned binaries.
+if [ "$PLATFORM" = macos ]; then
+  "$(dirname -- "$0")/macos-sign.sh" "$STAGE"
+fi
+
 mkdir -p "$DEST"
 if [ "$PLATFORM" = windows ]; then
   ARCHIVE="$DEST/cmake-$TARGET.7z"
