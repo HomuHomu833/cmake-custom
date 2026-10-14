@@ -126,6 +126,12 @@ case "$PLATFORM" in
     mkdir -p "$BUILD_DIR"
     "$ZIG_CC" -c "$ROOTDIR/patches/cmake/bionic_tls_align.S" -o "$BUILD_DIR/bionic_tls_align.o"
     ZIG_LINKER_FLAGS="$ZIG_LINKER_FLAGS $BUILD_DIR/bionic_tls_align.o"
+    # Pre-4.14 kernels reject MADV_WIPEONFORK with EINVAL, and newer bionic's
+    # arc4random aborts on that ("arc4random data MADV_WIPEONFORK failed").
+    # Wrap madvise in every tool to emulate it (see the .c).
+    log "Building bionic madvise wrap for older kernel compatibility"
+    "$ZIG_CC" -O2 -c "$ROOTDIR/patches/cmake/bionic_wipeonfork_compat.c" -o "$BUILD_DIR/bionic_wipeonfork_compat.o"
+    ZIG_LINKER_FLAGS="$ZIG_LINKER_FLAGS $BUILD_DIR/bionic_wipeonfork_compat.o -Wl,--wrap=madvise"
 
     ;;
   macos)
