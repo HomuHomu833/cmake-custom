@@ -155,11 +155,13 @@ case "$PLATFORM" in
       powerpc)         OPENSSL_TARGET="linux-ppc" ;;
       powerpc64)       OPENSSL_TARGET="linux-ppc64" ;;
       powerpc64le)     OPENSSL_TARGET="linux-ppc64le" ;;
-      riscv32|hexagon) OPENSSL_TARGET="linux-generic32" ;;
+      riscv32)         OPENSSL_TARGET="linux32-riscv32" ;;
       riscv64)         OPENSSL_TARGET="linux64-riscv64" ;;
+      hexagon)         OPENSSL_TARGET="linux-generic32" ;;
       s390x)           OPENSSL_TARGET="linux64-s390x" ;;
       sparc)           OPENSSL_TARGET="linux-sparcv8" ;;
       sparc64)         OPENSSL_TARGET="linux64-sparcv9" ;;
+      thumb|thumbeb)   OPENSSL_TARGET="linux-generic32" ;;
       x86)             OPENSSL_TARGET="linux-x86" ;;
       x86_64)          case "$TARGET" in *x32) OPENSSL_TARGET="linux-x32" ;; *) OPENSSL_TARGET="linux-x86_64" ;; esac ;;
       *)               OPENSSL_TARGET="linux-generic64" ;;
@@ -180,7 +182,15 @@ case "$PLATFORM" in
     case "$ARCH" in
       x86)                                          OPENSSL_TARGET="BSD-x86" ;;
       x86_64|x86_64h)                               OPENSSL_TARGET="BSD-x86_64" ;;
-      arm|armhf|armeb|riscv32|powerpc|mips|mipsel)  OPENSSL_TARGET="BSD-generic32" ;;
+      aarch64)                                      OPENSSL_TARGET="BSD-aarch64" ;;
+      arm|armhf)                                    OPENSSL_TARGET="BSD-armv4" ;;
+      armeb)                                        OPENSSL_TARGET="BSD-generic32" ;;
+      mips|mipsel)                                  OPENSSL_TARGET="BSD-generic32" ;;
+      powerpc)                                      OPENSSL_TARGET="BSD-ppc" ;;
+      powerpc64)                                    OPENSSL_TARGET="BSD-ppc64" ;;
+      powerpc64le)                                  OPENSSL_TARGET="BSD-ppc64le" ;;
+      riscv32)                                      OPENSSL_TARGET="BSD-riscv32" ;;
+      riscv64)                                      OPENSSL_TARGET="BSD-riscv64" ;;
       sparc)                                        OPENSSL_TARGET="BSD-sparcv8" ;;
       sparc64)                                      OPENSSL_TARGET="BSD-sparc64" ;;
       *)                                            OPENSSL_TARGET="BSD-generic64" ;;
@@ -195,7 +205,7 @@ esac
 case "$PLATFORM" in
   linux|bsd)
     case "$ARCH" in
-      x86|arm|armhf|armeb|riscv32|powerpc|mips|mipsel|hexagon|loongarch32)
+      x86|arm|armhf|armeb|riscv32|powerpc|mips|mipsel|hexagon|loongarch32|thumb|thumbeb)
         SSL_EXTRA="$SSL_EXTRA -DBROKEN_CLANG_ATOMICS" ;;
     esac ;;
 esac
