@@ -462,7 +462,9 @@ case "$PLATFORM" in
     # how OpenBSD is told to hide every BSD-only declaration, vasprintf among
     # them. libc++'s locale fallbacks call it, so anything reaching <iostream>
     # past one of these fails to compile. Upstream excuses OpenBSD from both.
-    grep -rl '_XOPEN_SOURCE 700' "$ROOTDIR/cmake-$CMAKE_VERSION/Source" 2>/dev/null | while read -r _f; do
+    # 3.6 and 3.10 predate the pattern, and grep finding nothing would fail the
+    # pipeline under pipefail. Those trees simply have nothing to excuse.
+    { grep -rl '_XOPEN_SOURCE 700' "$ROOTDIR/cmake-$CMAKE_VERSION/Source" 2>/dev/null || true; } | while read -r _f; do
       sed -i -e 's@^#if !defined(_WIN32) \&\& !defined(__sun)$@#if !defined(_WIN32) \&\& !defined(__sun) \&\& !defined(__OpenBSD__)@' \
              -e 's@^#if defined(__OpenBSD__) || defined(__FreeBSD__) || defined(__NetBSD__)$@#if defined(__FreeBSD__) || defined(__NetBSD__)@' \
           "$_f"
@@ -491,6 +493,19 @@ case "$PLATFORM" in
     fi
     ;;
 esac
+# cmlibuv's Linux source list carries sysinfo-loadavg.c and sysinfo-memory.c
+# beside linux-core.c, which defines the same uv_loadavg, uv_get_free_memory
+# and uv_get_total_memory. Which archive member lld pulls for the symbol
+# depends on the target's archive index, and sparc64 ends up loading both.
+# Leave the sysinfo copies weak so linux-core's strong ones win; Cygwin, the
+# only target that needs them, still resolves them.
+_uvsys="$ROOTDIR/cmake-$CMAKE_VERSION/Utilities/cmlibuv/src/unix"
+if [ -f "$_uvsys/sysinfo-loadavg.c" ]; then
+  sed -i -e 's@^void uv_loadavg@__attribute__((weak)) void uv_loadavg@' \
+         -e 's@^uint64_t uv_get_free_memory@__attribute__((weak)) uint64_t uv_get_free_memory@' \
+         -e 's@^uint64_t uv_get_total_memory@__attribute__((weak)) uint64_t uv_get_total_memory@' \
+      "$_uvsys/sysinfo-loadavg.c" "$_uvsys/sysinfo-memory.c" 2>/dev/null || true
+fi
 # libuv's copy_file_range shim took the offsets as ssize_t*, which is only the
 # same as the off_t* its caller has on a 64-bit target. Upstream corrected the
 # shim rather than the call.
