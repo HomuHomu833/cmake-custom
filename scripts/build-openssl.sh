@@ -158,6 +158,8 @@ case "$PLATFORM" in
       riscv32|hexagon) OPENSSL_TARGET="linux-generic32" ;;
       riscv64)         OPENSSL_TARGET="linux64-riscv64" ;;
       s390x)           OPENSSL_TARGET="linux64-s390x" ;;
+      sparc)           OPENSSL_TARGET="linux-sparcv8" ;;
+      sparc64)         OPENSSL_TARGET="linux64-sparcv9" ;;
       x86)             OPENSSL_TARGET="linux-x86" ;;
       x86_64)          case "$TARGET" in *x32) OPENSSL_TARGET="linux-x32" ;; *) OPENSSL_TARGET="linux-x86_64" ;; esac ;;
       *)               OPENSSL_TARGET="linux-generic64" ;;
@@ -179,6 +181,8 @@ case "$PLATFORM" in
       x86)                                          OPENSSL_TARGET="BSD-x86" ;;
       x86_64|x86_64h)                               OPENSSL_TARGET="BSD-x86_64" ;;
       arm|armhf|armeb|riscv32|powerpc|mips|mipsel)  OPENSSL_TARGET="BSD-generic32" ;;
+      sparc)                                        OPENSSL_TARGET="BSD-sparcv8" ;;
+      sparc64)                                      OPENSSL_TARGET="BSD-sparc64" ;;
       *)                                            OPENSSL_TARGET="BSD-generic64" ;;
     esac ;;
   *) echo "Unknown/unsupported PLATFORM='$PLATFORM'" >&2; exit 1 ;;
