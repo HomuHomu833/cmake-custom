@@ -282,7 +282,9 @@ build_project() {
             # curl's windows probe passes int* where ioctlsocket wants u_long*,
             # an error since clang 15, so it loses to the amiga one and
             # nonblock.c calls IoctlSocket. A defined value skips the probe.
-            cmake_flags+=(-DHAVE_IOCTLSOCKET_FIONBIO=1) ;;
+            # Schannel and the Windows certificate store, as upstream's builds;
+            # openssl here would verify against a bundle windows does not have.
+            cmake_flags+=(-DHAVE_IOCTLSOCKET_FIONBIO=1 -DCMAKE_USE_OPENSSL=OFF) ;;
         esac
     fi
     # cmake only prints "- no" when a feature probe fails, and treats any warning
@@ -315,16 +317,17 @@ sed -i '/auto separator = cm::string_view{/,/}/c\
         this->RegistryFormat.end(1) - this->RegistryFormat.start(1)\
     };\
 }' "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmWindowsRegistry.cxx" || true
-# cmCurl.cxx: find termux's cert.pem at $HOME/../usr/etc/tls, cmake having no
-# $PREFIX. Edits rather than a copy of the file, which pinned one generation.
-# GetEnv and FileExists kept these signatures since well before 3.6. The guard
-# is the one cmake puts on the bundle search itself, which from 3.10 is also
-# what pulls in cmSystemTools.h.
-sed -i '0,/^  std::string e;$/s@^  std::string e;$@  std::string e;\n#if !defined(CMAKE_USE_SYSTEM_CURL) \&\& !defined(_WIN32) \&\& !defined(__APPLE__) \&\& !defined(CURL_CA_BUNDLE) \&\& !defined(CURL_CA_PATH)\n  std::string termux_ca;\n  if (cmSystemTools::GetEnv("HOME", termux_ca)) {\n    termux_ca += "/../usr/etc/tls/cert.pem";\n  }\n#endif@' \
+# cmCurl.cxx: cmake only looks for the Fedora and Debian bundles, and not at
+# all on apple. Probe termux ($HOME/../usr/etc/tls, cmake having no $PREFIX),
+# macOS/OpenBSD/FreeBSD/Alpine, NetBSD and Android too. Edits rather than a
+# copy of the file, which pinned one generation; GetEnv, FileExists and
+# FileIsDirectory kept these signatures since well before 3.6.
+sed -i 's@!defined(__APPLE__) \&\& @@' "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmCurl.cxx" || true
+sed -i '0,/^  std::string e;$/s@^  std::string e;$@  std::string e;\n#if !defined(CMAKE_USE_SYSTEM_CURL) \&\& !defined(_WIN32) \&\& !defined(CURL_CA_BUNDLE) \&\& !defined(CURL_CA_PATH)\n  std::string extra_ca;\n  bool extra_ca_dir = false;\n  {\n    std::string termux_ca;\n    if (cmSystemTools::GetEnv("HOME", termux_ca)) {\n      termux_ca += "/../usr/etc/tls/cert.pem";\n    }\n    const char* const cands[] = { termux_ca.c_str(), "/etc/ssl/cert.pem",\n      "/etc/openssl/certs/ca-certificates.crt", "/usr/local/share/certs/ca-root-nss.crt",\n      "/etc/openssl/certs", "/system/etc/security/cacerts" };\n    for (size_t i = 0; i < sizeof(cands) / sizeof(cands[0]) \&\& extra_ca.empty(); ++i) {\n      if (*cands[i] \&\& cmSystemTools::FileExists(cands[i])) {\n        extra_ca = cands[i];\n        extra_ca_dir = cmSystemTools::FileIsDirectory(extra_ca);\n      }\n    }\n  }\n#endif@' \
     "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmCurl.cxx" || true
 # Ahead of the Fedora bundle so an explicit cafile and SSL_CERT_* still win,
-# and inside its guard, already off for windows, apple and a system curl.
-sed -i 's@^#\( *\)define CMAKE_CAFILE_FEDORA@  else if (!termux_ca.empty() \&\& cmSystemTools::FileExists(termux_ca, true)) {\n    ::CURLcode res =\n      ::curl_easy_setopt(curl, CURLOPT_CAINFO, termux_ca.c_str());\n    check_curl_result(res, "Unable to set TLS/SSL Verify CAINFO: ");\n  }\n#\1define CMAKE_CAFILE_FEDORA@' \
+# and inside its guard, off for windows (schannel) and a system curl.
+sed -i 's@^#\( *\)define CMAKE_CAFILE_FEDORA@  else if (!extra_ca.empty()) {\n    ::CURLcode res = ::curl_easy_setopt(\n      curl, extra_ca_dir ? CURLOPT_CAPATH : CURLOPT_CAINFO, extra_ca.c_str());\n    check_curl_result(res, "Unable to set TLS/SSL Verify CAINFO: ");\n  }\n#\1define CMAKE_CAFILE_FEDORA@' \
     "$ROOTDIR/cmake-$CMAKE_VERSION/Source/cmCurl.cxx" || true
 
 # curl up to 7.49 dumps certificate details through X509 and EVP_PKEY, opaque

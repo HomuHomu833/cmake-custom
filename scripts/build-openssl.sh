@@ -146,7 +146,8 @@ case "$PLATFORM" in
       armeb)           OPENSSL_TARGET="linux-generic32" ;;
       loongarch32)     OPENSSL_TARGET="linux-generic32" ;;
       loongarch64)     OPENSSL_TARGET="linux64-loongarch64" ;;
-      mips|mipsel)     OPENSSL_TARGET="linux-mips32" ;;
+      # The mips32 and sparcv9 perlasm get TLS records wrong (bad record mac).
+      mips|mipsel)     OPENSSL_TARGET="linux-mips32"; SSL_EXTRA="$SSL_EXTRA no-asm" ;;
       mips64|mips64el)
        case "$TARGET" in
           *n32*) OPENSSL_TARGET="linux-mips64"; SSL_EXTRA="$SSL_EXTRA no-asm" ;;
@@ -160,7 +161,7 @@ case "$PLATFORM" in
       hexagon)         OPENSSL_TARGET="linux-generic32" ;;
       s390x)           OPENSSL_TARGET="linux64-s390x" ;;
       sparc)           OPENSSL_TARGET="linux-sparcv8" ;;
-      sparc64)         OPENSSL_TARGET="linux64-sparcv9" ;;
+      sparc64)         OPENSSL_TARGET="linux64-sparcv9"; SSL_EXTRA="$SSL_EXTRA no-asm" ;;
       thumb|thumbeb)   OPENSSL_TARGET="linux-generic32" ;;
       x86)             OPENSSL_TARGET="linux-x86" ;;
       x86_64)          case "$TARGET" in *x32) OPENSSL_TARGET="linux-x32" ;; *) OPENSSL_TARGET="linux-x86_64" ;; esac ;;
