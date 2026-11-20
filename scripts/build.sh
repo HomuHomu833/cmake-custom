@@ -192,7 +192,9 @@ case "$PLATFORM" in
     # C++11". Silence just that diagnostic.
     case "$TARGET" in mips64*) ZIG_C_FLAGS="$ZIG_C_FLAGS -Wno-option-ignored" ;; esac
     # hexagon's direct call reaches +-8MB, less than cmake's text by now
-    case "$TARGET" in hexagon-*) ZIG_C_FLAGS="$ZIG_C_FLAGS -mlong-calls" ;; esac
+    # and a dynamic-model thread_local calls __tls_get_addr through a PLT slot
+    # nothing fills in a static executable, so it jumps to 0
+    case "$TARGET" in hexagon-*) ZIG_C_FLAGS="$ZIG_C_FLAGS -mlong-calls -ftls-model=local-exec" ;; esac
     ZIG_CXX_FLAGS="$ZIG_C_FLAGS"
     ;;
   bsd)
