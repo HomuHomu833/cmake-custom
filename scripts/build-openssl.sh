@@ -158,7 +158,7 @@ case "$PLATFORM" in
       powerpc64le)     OPENSSL_TARGET="linux-ppc64le" ;;
       riscv32)         OPENSSL_TARGET="linux32-riscv32" ;;
       riscv64)         OPENSSL_TARGET="linux64-riscv64" ;;
-      hexagon)         OPENSSL_TARGET="linux-generic32"; SSL_EXTRA="$SSL_EXTRA -mlong-calls -ftls-model=local-exec -O1" ;;
+      hexagon)         OPENSSL_TARGET="linux-generic32"; SSL_EXTRA="$SSL_EXTRA -mlong-calls -ftls-model=local-exec -O0" ;;
       s390x)           OPENSSL_TARGET="linux64-s390x" ;;
       sparc)           OPENSSL_TARGET="linux-sparcv8" ;;
       sparc64)         OPENSSL_TARGET="linux64-sparcv9"; SSL_EXTRA="$SSL_EXTRA no-asm" ;;
