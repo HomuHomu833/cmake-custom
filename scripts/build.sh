@@ -191,6 +191,8 @@ case "$PLATFORM" in
     # every C++ check reports "no" and the build stops at "does not support
     # C++11". Silence just that diagnostic.
     case "$TARGET" in mips64*) ZIG_C_FLAGS="$ZIG_C_FLAGS -Wno-option-ignored" ;; esac
+    # hexagon's direct call reaches +-8MB, less than cmake's text by now
+    case "$TARGET" in hexagon-*) ZIG_C_FLAGS="$ZIG_C_FLAGS -mlong-calls" ;; esac
     ZIG_CXX_FLAGS="$ZIG_C_FLAGS"
     ;;
   bsd)
@@ -557,6 +559,9 @@ else
     # reads sysinfo() instead; same branch, ahead of the fallback.
     sed -i '/^#else$/{N;s@^#else\ndouble GetLoadAverage() {@#elif defined(__BIONIC__)\n#include <sys/sysinfo.h>\ndouble GetLoadAverage() {\n  struct sysinfo si;\n  if (sysinfo(\&si) != 0)\n    return -0.0f;\n  return 1.0 / (1 << SI_LOAD_SHIFT) * si.loads[0];\n}\n#else\ndouble GetLoadAverage() {@}' \
         "$ROOTDIR/ninja-$NINJA_VERSION/src/util.cc" || true
+    # 1.5.3 calls pselect off linux without including its header.
+    grep -q 'sys/select.h' "$ROOTDIR/ninja-$NINJA_VERSION/src/subprocess-posix.cc" ||
+      sed -i 's@^#include <poll.h>$@&\n#include <sys/select.h>@' "$ROOTDIR/ninja-$NINJA_VERSION/src/subprocess-posix.cc" || true
     log "Configuring Ninja $NINJA_VERSION ($TARGET) with configure.py, platform $_njp"
     (
       cd "$ROOTDIR/ninja-$NINJA_VERSION"
