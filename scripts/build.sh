@@ -171,6 +171,16 @@ case "$PLATFORM" in
     # Linux (musl/gnu) via zig-as-llvm. SYSTEM_NAME=Linux.
     TC=/opt/zig-as-llvm
     [ -d "$ROOTDIR/patches/zig" ] && cp -R "$ROOTDIR/patches/zig/." /opt/zig/ || true
+    # hexagon: zig compiles libc++abi itself, without our -ftls-model, and as PIC.
+    # Its exception state and thread_atexit list are thread-locals, so every throw
+    # called __tls_get_addr through a PLT slot a static exe never fills. Same
+    # initial-exec attribute as android-sdk-custom.
+    for f in /opt/zig/lib/libcxxabi/src/cxa_exception_storage.cpp /opt/zig/lib/libcxxabi/src/cxa_thread_atexit.cpp; do
+      [ -f "$f" ] && ! grep -q _SDK_TLS_IE "$f" || continue
+      sed -i -e 's/^\(\s*\)static thread_local __cxa_eh_globals eh_globals;/\1_SDK_TLS_IE static thread_local __cxa_eh_globals eh_globals;/' \
+             -e 's/^\(\s*\)__thread \(DtorList\* dtors = nullptr;\|bool dtors_alive = false;\)/\1_SDK_TLS_IE __thread \2/' \
+             -e '0,/^#include/s//#if defined(__hexagon__)\n#define _SDK_TLS_IE __attribute__((tls_model("initial-exec")))\n#else\n#define _SDK_TLS_IE\n#endif\n#include/' "$f"
+    done
     export ZIG_TARGET="$TARGET"
     # ppc64le glibc: clang's IEEE-128 long double makes libc++ call
     # glibc's __*ieee128 printf entries, which arrived in 2.32.
@@ -215,7 +225,8 @@ case "$PLATFORM" in
     ZIG_C_FLAGS=""; ZIG_CXX_FLAGS=""; ZIG_LINKER_FLAGS=""
     # x86 NetBSD: LLVM keeps i386 stacks 4-byte aligned there, but the system libc
     # (gcc-built, dynamic) assumes 16 and arc4random's movdqa faulted on it.
-    case "$TARGET" in x86-netbsd-*) ZIG_C_FLAGS="-mstack-alignment=16"; ZIG_CXX_FLAGS="$ZIG_C_FLAGS" ;; esac
+    # Realign on entry too: zig's startup code does not hand main a 16-byte stack.
+    case "$TARGET" in x86-netbsd-*) ZIG_C_FLAGS="-mstack-alignment=16 -mstackrealign"; ZIG_CXX_FLAGS="$ZIG_C_FLAGS" ;; esac
     ;;
   *) echo "Unknown/unsupported PLATFORM='$PLATFORM'" >&2; exit 1 ;;
 esac
