@@ -181,7 +181,9 @@ case "$PLATFORM" in
     # musl links fully static; glibc links static libstdc++/libgcc only.
     case "$TARGET" in
       *musl*) ZIG_C_FLAGS="-static"; ZIG_LINKER_FLAGS="-static" ;;
-      *gnu*)  ZIG_C_FLAGS="";        ZIG_LINKER_FLAGS="-static-libstdc++ -static-libgcc" ;;
+      # 64-bit off_t/ino_t on 32-bit glibc. Before 3.20 cmake used plain readdir,
+      # which fails with EOVERFLOW on 64-bit inodes and file(GLOB) comes back empty.
+      *gnu*)  ZIG_C_FLAGS="-D_FILE_OFFSET_BITS=64"; ZIG_LINKER_FLAGS="-static-libstdc++ -static-libgcc" ;;
       *)      ZIG_C_FLAGS="";        ZIG_LINKER_FLAGS="" ;;
     esac
     # mips64 N64: clang warns "-fno-PIC ignored ... with -mabicalls and the N64
@@ -558,7 +560,11 @@ else
       # configure.py passes no -std, so clang picks gnu++17 and this ninja
       # loses auto_ptr and mem_fun. C++11 still has both; the two macros cover
       # anything that pulls the standard back up.
-      CXX="$ZIG_CXX" AR="$ZIG_AR" LDFLAGS="$ZIG_LINKER_FLAGS" \
+      # The windows flags end in -Wl,-Bdynamic for crypt32, which ninja does not
+      # use, and the driver then appends libc++ dynamically. Keep it all static.
+      _njld="$ZIG_LINKER_FLAGS"
+      [ "$PLATFORM" = windows ] && _njld="-static -static-libstdc++ -static-libgcc"
+      CXX="$ZIG_CXX" AR="$ZIG_AR" LDFLAGS="$_njld" \
       CFLAGS="$ZIG_CXX_FLAGS -std=c++11 -D_LIBCPP_ENABLE_CXX17_REMOVED_AUTO_PTR -D_LIBCPP_ENABLE_CXX17_REMOVED_BINDERS" \
         python3 configure.py --platform="$_njp" --host=linux
       ninja -j"$(nproc)"
