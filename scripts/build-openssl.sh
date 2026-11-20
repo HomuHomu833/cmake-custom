@@ -158,6 +158,8 @@ case "$PLATFORM" in
       powerpc64le)     OPENSSL_TARGET="linux-ppc64le" ;;
       riscv32)         OPENSSL_TARGET="linux32-riscv32" ;;
       riscv64)         OPENSSL_TARGET="linux64-riscv64" ;;
+      # hexagon: clang miscompiles the C crypto from -O1 up (TLS fails with bad record
+      # mac); -O0 is correct. zig turns -O0 into a ubsan build, so drop that.
       hexagon)         OPENSSL_TARGET="linux-generic32"; SSL_EXTRA="$SSL_EXTRA -mlong-calls -ftls-model=local-exec -O0 -fno-sanitize=undefined" ;;
       s390x)           OPENSSL_TARGET="linux64-s390x" ;;
       sparc)           OPENSSL_TARGET="linux-sparcv8" ;;
