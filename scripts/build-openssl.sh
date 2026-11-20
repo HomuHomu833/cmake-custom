@@ -180,6 +180,8 @@ case "$PLATFORM" in
     # OpenSSL's 32-bit x86 BSD perlasm emits .align values clang's integrated
     # assembler rejects ("alignment must be a power of 2"); build it in C.
     [ "$ARCH" = x86 ] && SSL_EXTRA="$SSL_EXTRA no-asm"
+    # NetBSD's i386 libc assumes 16-byte stacks; LLVM gives 4 there (see build.sh)
+    case "$TARGET" in x86-netbsd-*) SSL_EXTRA="$SSL_EXTRA -mstack-alignment=16" ;; esac
     case "$ARCH" in
       x86)                                          OPENSSL_TARGET="BSD-x86" ;;
       x86_64|x86_64h)                               OPENSSL_TARGET="BSD-x86_64" ;;

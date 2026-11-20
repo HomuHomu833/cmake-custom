@@ -213,6 +213,9 @@ case "$PLATFORM" in
       *)       TARGET_OS=Generic ;;
     esac
     ZIG_C_FLAGS=""; ZIG_CXX_FLAGS=""; ZIG_LINKER_FLAGS=""
+    # x86 NetBSD: LLVM keeps i386 stacks 4-byte aligned there, but the system libc
+    # (gcc-built, dynamic) assumes 16 and arc4random's movdqa faulted on it.
+    case "$TARGET" in x86-netbsd-*) ZIG_C_FLAGS="-mstack-alignment=16"; ZIG_CXX_FLAGS="$ZIG_C_FLAGS" ;; esac
     ;;
   *) echo "Unknown/unsupported PLATFORM='$PLATFORM'" >&2; exit 1 ;;
 esac
